@@ -1,7 +1,7 @@
 {
-  "name": "ecoiz-backend",
+  "name": "ecoiz-database",
   "version": "1.0.0",
-  "description": "Ecoiz backend with Prisma 6 and PostgreSQL",
+  "description": "Ecoiz database setup with Prisma 6 and PostgreSQL",
   "main": "index.js",
   "scripts": {
     "migrate": "prisma migrate dev",

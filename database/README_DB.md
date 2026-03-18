@@ -16,7 +16,7 @@ The Python backend (FastAPI / SQLAlchemy) should connect directly to PostgreSQL 
 ## Project Structure
 
 ```text
-backend/
+database/
 ├ prisma/
 │  ├ schema.prisma
 │  ├ migrations/
@@ -64,7 +64,7 @@ All primary keys use UUIDs.
 
 ## Run PostgreSQL in Docker
 
-From the `backend` directory:
+From the `database` directory:
 
 ```bash
 docker-compose up -d
