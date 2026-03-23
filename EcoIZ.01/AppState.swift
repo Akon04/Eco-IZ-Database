@@ -4,110 +4,142 @@ import Combine
 @MainActor
 final class AppState: ObservableObject {
     @Published var isAuthenticated = false
+    @Published var isRestoringSession = false
+    @Published var isAuthenticating = false
+    @Published var isSubmittingActivity = false
+    @Published var isPosting = false
+    @Published var isSendingMessage = false
+    @Published var isClaimingChallenge = false
+    @Published var alertMessage: String?
+
     @Published var user = UserProfile(
-        fullName: "Eco User",
+        fullName: "Пользователь",
         email: "user@ecoiz.app",
-        points: 90,
-        streakDays: 2,
-        co2SavedTotal: 8.6
+        points: 0,
+        streakDays: 0,
+        co2SavedTotal: 0
     )
     @Published var activities: [EcoActivity] = []
-    @Published var challenges: [Challenge] = [
-        Challenge(
-            title: "7 eco-действий за неделю",
-            description: "Добавь 7 любых экологичных активностей",
-            targetCount: 7,
-            currentCount: 0,
-            rewardPoints: 60,
-            badgeSymbol: "leaf.fill",
-            badgeTintHex: 0x43B244,
-            badgeBackgroundHex: 0xEAF8DF
-        ),
-        Challenge(
-            title: "3 дня без пластика",
-            description: "Отмечай действия категории Пластик",
-            targetCount: 3,
-            currentCount: 0,
-            rewardPoints: 40,
-            badgeSymbol: "waterbottle.fill",
-            badgeTintHex: 0x1AA5E6,
-            badgeBackgroundHex: 0xE7F5FF
-        ),
-        Challenge(
-            title: "Эко-транспорт",
-            description: "5 поездок пешком/велосипедом/метро",
-            targetCount: 5,
-            currentCount: 0,
-            rewardPoints: 45,
-            badgeSymbol: "figure.walk.circle.fill",
-            badgeTintHex: 0xF09A00,
-            badgeBackgroundHex: 0xFFF5E2
-        )
-    ]
+    @Published var challenges: [Challenge] = []
     @Published var posts: [EcoPost] = []
-    @Published var chatMessages: [ChatMessage] = [
-        ChatMessage(
-            isUser: false,
-            text: "Привет! Я Eco AI. Помогу улучшить твои эко-привычки и мотивацию.",
-            createdAt: Date()
-        )
-    ]
+    @Published var chatMessages: [ChatMessage] = []
 
-    private var lastActivityDate: Date?
+    private let apiClient: APIClient
+    private var didAttemptSessionRestore = false
 
     let templatesByCategory: [ActivityCategory: [ActivityTemplate]] = [
         .transport: [
-            ActivityTemplate(title: "Пешая прогулка", estimatedCO2: 1.2, points: 16),
-            ActivityTemplate(title: "Метро", estimatedCO2: 0.8, points: 12),
-            ActivityTemplate(title: "Велосипед", estimatedCO2: 1.5, points: 18),
-            ActivityTemplate(title: "Самокат", estimatedCO2: 0.9, points: 11),
-            ActivityTemplate(title: "Автобус вместо машины", estimatedCO2: 1.0, points: 13)
+            ActivityTemplate(title: "Пешая прогулка", estimatedCO2: 1.5, points: 20),
+            ActivityTemplate(title: "Мотоцикл", estimatedCO2: 0.2, points: 5),
+            ActivityTemplate(title: "Велосипед", estimatedCO2: 2.0, points: 25),
+            ActivityTemplate(title: "Самокат", estimatedCO2: 0.8, points: 15),
+            ActivityTemplate(title: "Машина", estimatedCO2: 0.0, points: 0),
+            ActivityTemplate(title: "Общ. транспорт", estimatedCO2: 1.0, points: 15),
+            ActivityTemplate(title: "Поезд", estimatedCO2: 1.2, points: 15),
+            ActivityTemplate(title: "Совместная поездка", estimatedCO2: 1.3, points: 18)
         ],
         .plastic: [
-            ActivityTemplate(title: "Без пакета", estimatedCO2: 0.3, points: 8),
-            ActivityTemplate(title: "Многоразовая сумка", estimatedCO2: 0.5, points: 10),
-            ActivityTemplate(title: "Многоразовая бутылка", estimatedCO2: 0.6, points: 10),
-            ActivityTemplate(title: "Сдал пластик", estimatedCO2: 0.9, points: 14)
+            ActivityTemplate(title: "Без пакета", estimatedCO2: 0.0, points: 10),
+            ActivityTemplate(title: "Многоразовая сумка", estimatedCO2: 0.0, points: 15),
+            ActivityTemplate(title: "Многоразовая бутылка", estimatedCO2: 0.0, points: 20),
+            ActivityTemplate(title: "Сдал пластик", estimatedCO2: 0.0, points: 25)
         ],
         .water: [
-            ActivityTemplate(title: "Короткий душ", estimatedCO2: 0.4, points: 9),
-            ActivityTemplate(title: "Закрыл кран вовремя", estimatedCO2: 0.2, points: 6),
-            ActivityTemplate(title: "Устранил утечку", estimatedCO2: 0.8, points: 14),
-            ActivityTemplate(title: "Установил аэратор", estimatedCO2: 0.7, points: 12),
-            ActivityTemplate(title: "Полная загрузка стирки", estimatedCO2: 0.6, points: 11)
+            ActivityTemplate(title: "Короткий душ", estimatedCO2: 0.0, points: 15),
+            ActivityTemplate(title: "Закрыл кран вовремя", estimatedCO2: 0.0, points: 10),
+            ActivityTemplate(title: "Полная загрузка стирки", estimatedCO2: 0.0, points: 20),
+            ActivityTemplate(title: "Устранил утечку", estimatedCO2: 0.0, points: 30),
+            ActivityTemplate(title: "Установил аэратор", estimatedCO2: 0.0, points: 25)
         ],
         .waste: [
-            ActivityTemplate(title: "Сортировка отходов", estimatedCO2: 0.9, points: 13),
-            ActivityTemplate(title: "Сдал вторсырье", estimatedCO2: 1.1, points: 15),
-            ActivityTemplate(title: "Компост", estimatedCO2: 0.7, points: 12)
+            ActivityTemplate(title: "Сортировка", estimatedCO2: 0.0, points: 15),
+            ActivityTemplate(title: "Сдал вторсырье", estimatedCO2: 0.0, points: 20),
+            ActivityTemplate(title: "Компост", estimatedCO2: 0.0, points: 20)
         ],
         .energy: [
-            ActivityTemplate(title: "Отключил ненужные приборы", estimatedCO2: 0.5, points: 10),
-            ActivityTemplate(title: "Использовал дневной свет", estimatedCO2: 0.4, points: 9),
-            ActivityTemplate(title: "Альтернатива электрическому свету", estimatedCO2: 0.6, points: 11)
+            ActivityTemplate(title: "Выключил свет", estimatedCO2: 0.0, points: 10),
+            ActivityTemplate(title: "Отключил приборы из сети", estimatedCO2: 0.0, points: 15),
+            ActivityTemplate(title: "Использую LED-лампы", estimatedCO2: 0.0, points: 20),
+            ActivityTemplate(title: "Использую дневной свет", estimatedCO2: 0.0, points: 15)
         ]
     ]
 
-    init() {
-        seedInitialData()
+    init(apiClient: APIClient? = nil) {
+        self.apiClient = apiClient ?? APIClient()
     }
 
-    func signIn(email: String, password: String) {
-        guard !email.isEmpty, !password.isEmpty else { return }
-        user.email = email
-        isAuthenticated = true
+    func restoreSessionIfNeeded() async {
+        guard !didAttemptSessionRestore else { return }
+        didAttemptSessionRestore = true
+        await restoreSession()
     }
 
-    func register(name: String, email: String, password: String) {
-        guard !name.isEmpty, !email.isEmpty, !password.isEmpty else { return }
-        user = UserProfile(fullName: name, email: email, points: 0, streakDays: 0, co2SavedTotal: 0)
-        isAuthenticated = true
+    func restoreSession() async {
+        guard apiClient.hasStoredToken else { return }
+        alertMessage = nil
+        isRestoringSession = true
+        defer { isRestoringSession = false }
+
+        do {
+            try await loadBootstrap()
+            isAuthenticated = true
+        } catch {
+            apiClient.clearToken()
+            clearSession()
+            present(error)
+        }
+    }
+
+    @discardableResult
+    func signIn(email: String, password: String) async -> Bool {
+        guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !password.isEmpty else {
+            return false
+        }
+
+        alertMessage = nil
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+
+        do {
+            _ = try await apiClient.login(email: email, password: password)
+            try await loadBootstrap()
+            isAuthenticated = true
+            return true
+        } catch {
+            present(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func register(name: String, email: String, password: String) async -> Bool {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !password.isEmpty else {
+            return false
+        }
+
+        alertMessage = nil
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+
+        do {
+            _ = try await apiClient.register(name: name, email: email, password: password)
+            try await loadBootstrap()
+            isAuthenticated = true
+            return true
+        } catch {
+            present(error)
+            return false
+        }
     }
 
     func signOut() {
-        isAuthenticated = false
+        apiClient.clearToken()
+        clearSession()
     }
 
+    @discardableResult
     func addActivity(
         category: ActivityCategory,
         title: String,
@@ -116,139 +148,125 @@ final class AppState: ObservableObject {
         note: String? = nil,
         media: [PostMediaAttachment] = [],
         shareToNews: Bool = true
-    ) {
-        let newItem = EcoActivity(
-            category: category,
-            title: title,
-            co2Saved: co2,
-            points: points,
-            createdAt: Date()
-        )
-        activities.insert(newItem, at: 0)
+    ) async -> Bool {
+        alertMessage = nil
+        isSubmittingActivity = true
+        defer { isSubmittingActivity = false }
 
-        user.co2SavedTotal += co2
-        user.points += points
-        updateStreak(with: newItem.createdAt)
-        updateChallenges(for: newItem)
-
-        guard shareToNews else { return }
-
-        let trimmedNote = (note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let text = trimmedNote.isEmpty
-            ? "Добавил активити: \(title) (\(category.rawValue))"
-            : "Добавил активити: \(title) (\(category.rawValue))\n\(trimmedNote)"
-
-        let post = EcoPost(
-            author: user.fullName,
-            text: text,
-            createdAt: Date(),
-            media: media
-        )
-        posts.insert(post, at: 0)
-    }
-
-    func addPost(text: String, media: [PostMediaAttachment] = []) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty || !media.isEmpty else { return }
-        posts.insert(
-            EcoPost(author: user.fullName, text: trimmed, createdAt: Date(), media: media),
-            at: 0
-        )
-    }
-
-    func sendMessageToAI(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        chatMessages.append(ChatMessage(isUser: true, text: trimmed, createdAt: Date()))
-        chatMessages.append(
-            ChatMessage(
-                isUser: false,
-                text: aiResponse(for: trimmed),
-                createdAt: Date()
+        do {
+            let response = try await apiClient.addActivity(
+                category: category,
+                title: title,
+                co2: co2,
+                points: points,
+                note: note,
+                media: media,
+                shareToNews: shareToNews
             )
-        )
-    }
-
-    private func aiResponse(for input: String) -> String {
-        let lowercase = input.lowercased()
-        if lowercase.contains("вода") {
-            return "Попробуй 5-минутный душ и проверь, нет ли протечек. Это дает стабильный эффект каждый день."
-        }
-        if lowercase.contains("транспорт") || lowercase.contains("машин") {
-            return "2-3 поездки в неделю на метро, автобусе или велосипеде уже заметно снижают личный CO2 след."
-        }
-        if lowercase.contains("мотивац") || lowercase.contains("сложно") {
-            return "Сфокусируйся на streak: одно небольшое действие в день лучше, чем идеальный, но редкий рывок."
-        }
-        return "Отличный вопрос. Держи ритм: выбери 1 активити из воды, 1 из энергии и 1 из пластика сегодня."
-    }
-
-    private func updateStreak(with date: Date) {
-        let calendar = Calendar.current
-        defer { lastActivityDate = date }
-
-        guard let last = lastActivityDate else {
-            user.streakDays = max(user.streakDays, 1)
-            return
-        }
-
-        if calendar.isDate(date, inSameDayAs: last) { return }
-        if let yesterday = calendar.date(byAdding: .day, value: -1, to: date),
-           calendar.isDate(last, inSameDayAs: yesterday) {
-            user.streakDays += 1
-        } else {
-            user.streakDays = 1
-        }
-    }
-
-    private func updateChallenges(for activity: EcoActivity) {
-        for index in challenges.indices {
-            if challenges[index].isCompleted { continue }
-            switch challenges[index].title {
-            case "7 eco-действий за неделю":
-                challenges[index].currentCount += 1
-            case "3 дня без пластика":
-                if activity.category == .plastic {
-                    challenges[index].currentCount += 1
+            user = response.user
+            challenges = response.challenges
+            activities.insert(response.activity, at: 0)
+            if shareToNews {
+                do {
+                    posts = try await apiClient.fetchPosts()
+                } catch {
+                    present(error)
                 }
-            case "Эко-транспорт":
-                if activity.category == .transport {
-                    challenges[index].currentCount += 1
-                }
-            default:
-                break
             }
-
-            if challenges[index].isCompleted {
-                user.points += challenges[index].rewardPoints
-            }
+            return true
+        } catch {
+            present(error)
+            return false
         }
     }
 
-    private func seedInitialData() {
-        let first = EcoActivity(
-            category: .energy,
-            title: "Отключил ненужные приборы",
-            co2Saved: 0.5,
-            points: 10,
-            createdAt: Date().addingTimeInterval(-3600 * 20)
+    @discardableResult
+    func addPost(text: String, media: [PostMediaAttachment] = []) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !media.isEmpty else { return false }
+
+        alertMessage = nil
+        isPosting = true
+        defer { isPosting = false }
+
+        do {
+            let post = try await apiClient.addPost(text: trimmed, media: media)
+            posts.insert(post, at: 0)
+            return true
+        } catch {
+            present(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func sendMessageToAI(_ text: String) async -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        alertMessage = nil
+        isSendingMessage = true
+        defer { isSendingMessage = false }
+
+        do {
+            let newMessages = try await apiClient.sendMessage(trimmed)
+            chatMessages.append(contentsOf: newMessages)
+            return true
+        } catch {
+            present(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func claimChallenge(_ challengeID: String) async -> Challenge? {
+        alertMessage = nil
+        isClaimingChallenge = true
+        defer { isClaimingChallenge = false }
+
+        do {
+            let response = try await apiClient.claimChallenge(id: challengeID)
+            user = response.user
+            challenges = response.challenges
+            return response.challenge
+        } catch {
+            present(error)
+            return nil
+        }
+    }
+
+    private func loadBootstrap() async throws {
+        let bootstrap = try await apiClient.bootstrap()
+        user = bootstrap.user
+        activities = bootstrap.activities
+        challenges = bootstrap.challenges
+        posts = bootstrap.posts
+        chatMessages = bootstrap.chatMessages
+        if chatMessages.isEmpty {
+            chatMessages = [
+                ChatMessage(isUser: false, text: "Привет! Я эко-ИИ. Помогу улучшить твои экопривычки и мотивацию.", createdAt: Date())
+            ]
+        }
+    }
+
+    private func clearSession() {
+        isAuthenticated = false
+        user = UserProfile(
+            fullName: "Пользователь",
+            email: "user@ecoiz.app",
+            points: 0,
+            streakDays: 0,
+            co2SavedTotal: 0
         )
-        let second = EcoActivity(
-            category: .plastic,
-            title: "Многоразовая сумка",
-            co2Saved: 0.5,
-            points: 10,
-            createdAt: Date().addingTimeInterval(-3600 * 44)
-        )
-        activities = [first, second]
-        posts = [
-            EcoPost(author: "Nurs", text: "Сегодня выбрал метро вместо машины", createdAt: Date().addingTimeInterval(-3500), media: []),
-            EcoPost(author: "Aya", text: "Сортирую отходы уже 5 дней подряд", createdAt: Date().addingTimeInterval(-9800), media: [])
+        activities = []
+        challenges = []
+        posts = []
+        chatMessages = [
+            ChatMessage(isUser: false, text: "Привет! Я эко-ИИ. Помогу улучшить твои экопривычки и мотивацию.", createdAt: Date())
         ]
-        challenges[0].currentCount = 2
-        challenges[1].currentCount = 1
-        challenges[2].currentCount = 0
-        lastActivityDate = first.createdAt
+    }
+
+    private func present(_ error: Error) {
+        alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 }

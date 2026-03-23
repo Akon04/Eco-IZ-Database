@@ -12,7 +12,14 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if appState.isAuthenticated {
+            if appState.isRestoringSession {
+                ZStack {
+                    EcoBackground()
+                    ProgressView("Подключаемся к EcoIz...")
+                        .font(EcoTypography.headline)
+                        .foregroundStyle(EcoTheme.ink)
+                }
+            } else if appState.isAuthenticated {
                 MainTabView()
             } else {
                 AuthView()
@@ -20,6 +27,17 @@ struct ContentView: View {
         }
         .tint(EcoTheme.primary)
         .environmentObject(appState)
+        .task {
+            await appState.restoreSessionIfNeeded()
+        }
+        .alert("Ошибка", isPresented: Binding(
+            get: { appState.alertMessage != nil },
+            set: { if !$0 { appState.alertMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(appState.alertMessage ?? "")
+        }
     }
 }
 

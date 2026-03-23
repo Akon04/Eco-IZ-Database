@@ -1,5 +1,5 @@
 //
-//  EcoIZ_01App.swift
+//  EcoIZ_02App.swift
 //  EcoIZ.01
 //
 //  Created by Ақерке Амиртай on 24.02.2026.

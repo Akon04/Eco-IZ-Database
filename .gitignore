@@ -13,3 +13,18 @@ Package.resolved
 
 # Misc
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+*.egg-info/

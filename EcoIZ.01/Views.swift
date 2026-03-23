@@ -136,12 +136,19 @@ struct AuthView: View {
                                     .keyboardType(.emailAddress)
                                 DuoInputSecureField(title: "Пароль", text: $password)
 
+                                if appState.isAuthenticating {
+                                    ProgressView()
+                                        .tint(EcoTheme.primary)
+                                }
+
                                 Button("Войти") {
-                                    appState.signIn(email: email, password: password)
+                                    Task {
+                                        _ = await appState.signIn(email: email, password: password)
+                                    }
                                 }
                                 .buttonStyle(DuoPrimaryButtonStyle())
-                                .disabled(!canLogin)
-                                .opacity(canLogin ? 1 : 0.55)
+                                .disabled(!canLogin || appState.isAuthenticating)
+                                .opacity((canLogin && !appState.isAuthenticating) ? 1 : 0.55)
 
                                 Button("Нет аккаунта? Зарегистрироваться") {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -174,14 +181,19 @@ struct AuthView: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
 
+                                if appState.isAuthenticating {
+                                    ProgressView()
+                                        .tint(EcoTheme.primary)
+                                }
+
                                 Button("Продолжить") {
                                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                                         stage = .verifyEmail
                                     }
                                 }
                                 .buttonStyle(DuoPrimaryButtonStyle())
-                                .disabled(!canRegister)
-                                .opacity(canRegister ? 1 : 0.55)
+                                .disabled(!canRegister || appState.isAuthenticating)
+                                .opacity((canRegister && !appState.isAuthenticating) ? 1 : 0.55)
                             }
                             .duoCard()
 
@@ -204,10 +216,19 @@ struct AuthView: View {
                                         .foregroundStyle(.secondary)
                                 }
 
+                                if appState.isAuthenticating {
+                                    ProgressView()
+                                        .tint(EcoTheme.primary)
+                                }
+
                                 Button("Я подтвердил почту") {
-                                    appState.register(name: fullName, email: email, password: password)
+                                    Task {
+                                        _ = await appState.register(name: fullName, email: email, password: password)
+                                    }
                                 }
                                 .buttonStyle(DuoPrimaryButtonStyle())
+                                .disabled(appState.isAuthenticating)
+                                .opacity(appState.isAuthenticating ? 0.55 : 1)
 
                                 Button("Отправить письмо еще раз") {}
                                     .buttonStyle(DuoSecondaryButtonStyle())
@@ -368,19 +389,13 @@ struct HomeView: View {
         .init(day: "Сб", points: 480)
     ]
     private var levelInfo: (name: String, progress: CGFloat, remaining: Int) {
-        switch appState.user.level {
-        case .newHero:
-            let total = 120
-            let current = min(max(appState.user.points, 0), total)
-            return ("Прогресс уровня 1", CGFloat(Double(current) / Double(total)), max(total - current, 0))
-        case .ecoWarrior:
-            let base = 120
-            let total = 200
-            let current = min(max(appState.user.points - base, 0), total)
-            return ("Прогресс уровня 5", CGFloat(Double(current) / Double(total)), max(total - current, 0))
-        case .planetGuardian:
-            return ("Хранитель Земли", 1.0, 0)
+        let level = appState.user.level
+        guard let upperBound = level.upperBoundExclusive else {
+            return (level.rawValue, 1.0, 0)
         }
+        let range = max(upperBound - level.lowerBound, 1)
+        let current = min(max(appState.user.points - level.lowerBound, 0), range)
+        return ("Прогресс уровня \(level.number)", CGFloat(Double(current) / Double(range)), max(upperBound - appState.user.points, 0))
     }
 
     private var selectedPoint: TrendDataPoint {
@@ -551,7 +566,7 @@ struct HomeView: View {
                                 .frame(height: 14)
 
                                 Text(levelInfo.remaining > 0
-                                     ? "\(levelInfo.remaining) очк. до «Хранитель Земли»"
+                                     ? "\(levelInfo.remaining) очк. до следующего уровня"
                                      : "Максимальный уровень достигнут")
                                 .font(EcoTypography.subheadline)
                                 .foregroundStyle(.white.opacity(0.75))
@@ -731,6 +746,12 @@ struct HomeView: View {
 
 struct ChallengesView: View {
     @EnvironmentObject private var appState: AppState
+    @State private var celebratingChallenge: Challenge?
+    @State private var isCelebrationVisible = false
+
+    private var visibleChallenges: [Challenge] {
+        appState.challenges.filter { !$0.isClaimed }
+    }
 
     private var completionCount: Int {
         appState.challenges.filter(\.isCompleted).count
@@ -792,7 +813,7 @@ struct ChallengesView: View {
                                     )
                                     ChallengesStatChip(
                                         title: "В процессе",
-                                        value: "\(appState.challenges.count - completionCount)",
+                                        value: "\(visibleChallenges.filter { !$0.isCompleted }.count)",
                                         icon: "bolt.fill",
                                         tint: EcoTheme.primary
                                     )
@@ -800,18 +821,58 @@ struct ChallengesView: View {
                             }
                             .surfaceCard()
 
-                            LazyVStack(spacing: 12) {
-                                ForEach(appState.challenges) { item in
-                                    ChallengeAchievementCard(
-                                        challenge: item,
-                                        compact: compactLayout
-                                    )
+                            if visibleChallenges.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Все текущие челленджи забраны")
+                                        .font(EcoTypography.title2)
+                                        .foregroundStyle(EcoTheme.ink)
+                                    Text("Новые ачивки уже в профиле. Выполняй следующие активности, и мы добавим больше миссий.")
+                                        .font(EcoTypography.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .surfaceCard()
+                            } else {
+                                LazyVStack(spacing: 12) {
+                                    ForEach(visibleChallenges) { item in
+                                        ChallengeAchievementCard(
+                                            challenge: item,
+                                            compact: compactLayout,
+                                            isClaiming: appState.isClaimingChallenge,
+                                            onClaim: {
+                                                Task {
+                                                    guard let claimed = await appState.claimChallenge(item.id) else { return }
+                                                    await MainActor.run {
+                                                        celebratingChallenge = claimed
+                                                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                                                            isCelebrationVisible = true
+                                                        }
+                                                    }
+                                                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                                    await MainActor.run {
+                                                        withAnimation(.easeInOut(duration: 0.25)) {
+                                                            isCelebrationVisible = false
+                                                        }
+                                                    }
+                                                    try? await Task.sleep(nanoseconds: 250_000_000)
+                                                    await MainActor.run {
+                                                        celebratingChallenge = nil
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
                         .padding(.horizontal, compactLayout ? 14 : 16)
                         .padding(.top, compactLayout ? 10 : 12)
                         .padding(.bottom, 80)
+                    }
+
+                    if let celebratingChallenge, isCelebrationVisible {
+                        ChallengeClaimCelebrationOverlay(challenge: celebratingChallenge)
+                            .transition(.asymmetric(insertion: .scale(scale: 0.92).combined(with: .opacity), removal: .opacity))
                     }
                 }
             }
@@ -935,14 +996,28 @@ struct AddActivityView: View {
 
                                         HStack(spacing: 10) {
                                             Button("Поделиться") {
-                                                commitSubmission(shareToNews: true)
+                                                Task {
+                                                    await commitSubmission(shareToNews: true)
+                                                }
                                             }
                                             .buttonStyle(DuoSecondaryButtonStyle())
+                                            .disabled(appState.isSubmittingActivity)
+                                            .opacity(appState.isSubmittingActivity ? 0.55 : 1)
 
                                             Button("Готово") {
-                                                commitSubmission(shareToNews: false)
+                                                Task {
+                                                    await commitSubmission(shareToNews: false)
+                                                }
                                             }
                                             .buttonStyle(DuoPrimaryButtonStyle())
+                                            .disabled(appState.isSubmittingActivity)
+                                            .opacity(appState.isSubmittingActivity ? 0.55 : 1)
+                                        }
+
+                                        if appState.isSubmittingActivity {
+                                            ProgressView()
+                                                .tint(.white)
+                                                .frame(maxWidth: .infinity)
                                         }
                                     }
                                     .padding(16)
@@ -1210,9 +1285,9 @@ struct AddActivityView: View {
         self.draftActivity = nil
     }
 
-    private func commitSubmission(shareToNews: Bool) {
+    private func commitSubmission(shareToNews: Bool) async {
         guard let pendingSubmission else { return }
-        appState.addActivity(
+        let success = await appState.addActivity(
             category: pendingSubmission.category,
             title: pendingSubmission.title,
             co2: pendingSubmission.co2,
@@ -1221,7 +1296,9 @@ struct AddActivityView: View {
             media: pendingSubmission.media,
             shareToNews: shareToNews
         )
-        dismiss()
+        if success {
+            dismiss()
+        }
     }
 
     private func loadActivityMedia(from items: [PhotosPickerItem]) async {
@@ -1301,7 +1378,9 @@ struct AddActivityView: View {
             if title.contains("вторсыр") { return "arrow.3.trianglepath" }
             return "leaf.fill"
         case .energy:
+            if title.contains("Выключил") { return "lightbulb.slash.fill" }
             if title.contains("Отключил") { return "powerplug.fill" }
+            if title.contains("LED") { return "lightbulb.led.fill" }
             if title.contains("дневной") { return "sun.max.fill" }
             return "bolt.fill"
         case .custom:
@@ -1339,13 +1418,16 @@ struct NewsView: View {
                         pickerItems: $pickerItems,
                         selectedMedia: $selectedMedia,
                         username: appState.user.fullName,
+                        isPosting: appState.isPosting,
                         onPost: {
-                            guard !postText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !selectedMedia.isEmpty else { return }
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                appState.addPost(text: postText, media: selectedMedia)
-                                postText = ""
-                                selectedMedia = []
-                                pickerItems = []
+                            Task {
+                                let success = await appState.addPost(text: postText, media: selectedMedia)
+                                guard success else { return }
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    postText = ""
+                                    selectedMedia = []
+                                    pickerItems = []
+                                }
                             }
                         }
                     )
@@ -1398,6 +1480,7 @@ private struct ThreadComposerBar: View {
     @Binding var pickerItems: [PhotosPickerItem]
     @Binding var selectedMedia: [PostMediaAttachment]
     let username: String
+    let isPosting: Bool
     let onPost: () -> Void
 
     var body: some View {
@@ -1427,7 +1510,13 @@ private struct ThreadComposerBar: View {
                     Button("Опубликовать", action: onPost)
                         .font(EcoTypography.buttonSecondary)
                         .foregroundStyle(EcoTheme.primary)
-                        .opacity((text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedMedia.isEmpty) ? 0.5 : 1)
+                        .opacity((text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedMedia.isEmpty) || isPosting ? 0.5 : 1)
+                        .disabled((text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedMedia.isEmpty) || isPosting)
+                }
+
+                if isPosting {
+                    ProgressView()
+                        .tint(EcoTheme.primary)
                 }
             }
         }
@@ -1631,9 +1720,10 @@ struct ProfileView: View {
     @EnvironmentObject private var appState: AppState
     @State private var showAllChallengeAchievements = false
     @State private var showAllActivities = false
+    @State private var selectedAchievement: Challenge?
 
     var completedChallengeAchievements: [Challenge] {
-        appState.challenges.filter(\.isCompleted)
+        appState.challenges.filter(\.isClaimed)
     }
 
     var profileAchievementPreview: [Challenge] {
@@ -1641,25 +1731,19 @@ struct ProfileView: View {
     }
 
     var nextLevelProgress: CGFloat {
-        switch appState.user.level {
-        case .newHero:
-            return CGFloat(min(Double(appState.user.points) / 120.0, 1))
-        case .ecoWarrior:
-            return CGFloat(min(Double(max(appState.user.points - 120, 0)) / 200.0, 1))
-        case .planetGuardian:
+        let level = appState.user.level
+        guard let upperBound = level.upperBoundExclusive else {
             return 1
         }
+        let range = max(upperBound - level.lowerBound, 1)
+        return CGFloat(min(Double(max(appState.user.points - level.lowerBound, 0)) / Double(range), 1))
     }
 
     var pointsToNext: Int {
-        switch appState.user.level {
-        case .newHero:
-            return max(120 - appState.user.points, 0)
-        case .ecoWarrior:
-            return max(320 - appState.user.points, 0)
-        case .planetGuardian:
+        guard let upperBound = appState.user.level.upperBoundExclusive else {
             return 0
         }
+        return max(upperBound - appState.user.points, 0)
     }
 
     var weeklyActivities: [EcoActivity] {
@@ -1813,7 +1897,9 @@ struct ProfileView: View {
                             } else {
                                 HStack(spacing: 10) {
                                     ForEach(profileAchievementPreview) { challenge in
-                                        ProfileAchievementMiniCard(challenge: challenge)
+                                        ProfileAchievementMiniCard(challenge: challenge) {
+                                            selectedAchievement = challenge
+                                        }
                                     }
                                 }
                             }
@@ -1875,6 +1961,9 @@ struct ProfileView: View {
             }
             .sheet(isPresented: $showAllActivities) {
                 AllActivitiesView(activities: appState.activities)
+            }
+            .sheet(item: $selectedAchievement) { challenge in
+                AchievementDetailSheet(challenge: challenge)
             }
         }
     }
@@ -2007,20 +2096,115 @@ private struct AllActivitiesView: View {
 
 private struct ProfileAchievementMiniCard: View {
     let challenge: Challenge
+    let action: () -> Void
 
     var body: some View {
-        VStack(spacing: 8) {
-            AchievementBadgeView(challenge: challenge, size: 64)
-            Text(challenge.title)
-                .font(EcoTypography.caption)
-                .foregroundStyle(EcoTheme.ink)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.82)
+        Button(action: action) {
+            VStack(spacing: 8) {
+                AchievementBadgeView(challenge: challenge, size: 64)
+                Text(challenge.title)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(EcoTheme.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 6)
+            .background(Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(hex: challenge.badgeTintHex).opacity(0.16), lineWidth: 1)
+            )
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .padding(.horizontal, 4)
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AchievementDetailSheet: View {
+    let challenge: Challenge
+    @Environment(\.dismiss) private var dismiss
+
+    private var progressText: String {
+        challenge.isClaimed ? "Ачивка уже получена и хранится в профиле." : "Прогресс: \(min(challenge.currentCount, challenge.targetCount))/\(challenge.targetCount)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                VStack(spacing: 18) {
+                    AchievementBadgeView(challenge: challenge, size: 116)
+
+                    VStack(spacing: 8) {
+                        Text(challenge.title)
+                            .font(EcoTypography.largeTitle)
+                            .foregroundStyle(EcoTheme.ink)
+                            .multilineTextAlignment(.center)
+
+                        Text(challenge.description)
+                            .font(EcoTypography.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                    }
+
+                    VStack(spacing: 10) {
+                        AchievementInfoRow(label: "Награда", value: "+\(challenge.rewardPoints) очк.", icon: "star.fill", tint: Color(hex: 0xD89A00))
+                        AchievementInfoRow(label: "Цель", value: "\(challenge.targetCount) действий", icon: "flag.fill", tint: EcoTheme.primary)
+                        AchievementInfoRow(label: "Статус", value: challenge.isClaimed ? "Получена" : (challenge.isCompleted ? "Готова к получению" : "В процессе"), icon: challenge.isClaimed ? "checkmark.seal.fill" : "bolt.fill", tint: challenge.isClaimed ? Color(hex: 0x0A8E79) : EcoTheme.sky)
+                    }
+                    .surfaceCard()
+
+                    Text(progressText)
+                        .font(EcoTypography.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Spacer()
+                }
+                .padding()
+                .padding(.bottom, 20)
+            }
+            .navigationTitle("Ачивка")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct AchievementInfoRow: View {
+    let label: String
+    let value: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(tint.opacity(0.14))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(tint)
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(EcoTypography.headline)
+                    .foregroundStyle(EcoTheme.ink)
+            }
+            Spacer()
+        }
     }
 }
 
@@ -2111,6 +2295,8 @@ private struct ChallengesStatChip: View {
 private struct ChallengeAchievementCard: View {
     let challenge: Challenge
     let compact: Bool
+    let isClaiming: Bool
+    let onClaim: () -> Void
 
     private var progress: Double {
         guard challenge.targetCount > 0 else { return 0 }
@@ -2162,12 +2348,27 @@ private struct ChallengeAchievementCard: View {
                     .foregroundStyle(Color(hex: 0xD89A00))
                 Spacer()
                 if challenge.isCompleted {
-                    PillBadge(
-                        icon: "checkmark.seal.fill",
-                        text: "Готово",
-                        foreground: Color(hex: 0x0A8E79),
-                        background: Color(hex: 0xDDF8EE)
-                    )
+                    Button(action: onClaim) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "gift.fill")
+                            Text("Забрать ачивку")
+                        }
+                        .font(EcoTypography.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: 0xFFB703), Color(hex: 0xFB8500)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isClaiming)
+                    .opacity(isClaiming ? 0.55 : 1)
                 } else {
                     Text("В процессе")
                         .font(EcoTypography.caption)
@@ -2182,6 +2383,117 @@ private struct ChallengeAchievementCard: View {
                 .stroke(tint.opacity(0.22), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+    }
+}
+
+private struct ChallengeClaimCelebrationOverlay: View {
+    let challenge: Challenge
+    @State private var badgeScale: CGFloat = 0.5
+    @State private var glowOpacity = 0.0
+    @State private var ringScale: CGFloat = 0.7
+    @State private var contentOffset: CGFloat = 24
+    @State private var sparkleRotation: Double = -16
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.black.opacity(0.12), Color(hex: challenge.badgeTintHex).opacity(0.22)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.38), lineWidth: 2)
+                        .frame(width: 188, height: 188)
+                        .scaleEffect(ringScale)
+                        .opacity(1.1 - glowOpacity * 0.35)
+
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [Color(hex: challenge.badgeBackgroundHex), Color.white.opacity(0.12)],
+                                center: .center,
+                                startRadius: 10,
+                                endRadius: 120
+                            )
+                        )
+                        .frame(width: 170, height: 170)
+                        .scaleEffect(1 + glowOpacity * 0.08)
+
+                    ForEach(0..<8, id: \.self) { index in
+                        Capsule()
+                            .fill(Color.white.opacity(0.85))
+                            .frame(width: 6, height: 22)
+                            .offset(y: -112)
+                            .rotationEffect(.degrees(Double(index) * 45 + sparkleRotation))
+                            .opacity(glowOpacity)
+                    }
+
+                    AchievementBadgeView(challenge: challenge, size: 108)
+                        .scaleEffect(badgeScale)
+                        .shadow(color: Color(hex: challenge.badgeTintHex).opacity(0.35), radius: 22, y: 10)
+                }
+
+                VStack(spacing: 8) {
+                    Text("Ты молодец!")
+                        .font(EcoTypography.largeTitle)
+                        .foregroundStyle(EcoTheme.ink)
+                    Text("Ачивка «\(challenge.title)» получена")
+                        .font(EcoTypography.title2)
+                        .foregroundStyle(EcoTheme.ink)
+                        .multilineTextAlignment(.center)
+                    Text("Теперь она хранится в профиле.")
+                        .font(EcoTypography.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .offset(y: contentOffset)
+                .opacity(glowOpacity)
+
+                HStack(spacing: 10) {
+                    CelebrationPill(text: "+\(challenge.rewardPoints) очк.", icon: "star.fill", tint: Color(hex: 0xD89A00))
+                    CelebrationPill(text: "Профиль обновлен", icon: "person.crop.circle.fill", tint: EcoTheme.primary)
+                }
+                .offset(y: contentOffset)
+                .opacity(glowOpacity)
+            }
+            .padding(28)
+            .background(Color.white.opacity(0.96), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(Color.white.opacity(0.7), lineWidth: 1)
+            )
+            .padding(.horizontal, 28)
+            .onAppear {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.64)) {
+                    badgeScale = 1.0
+                    glowOpacity = 1.0
+                    ringScale = 1.14
+                    contentOffset = 0
+                    sparkleRotation = 12
+                }
+            }
+        }
+    }
+}
+
+private struct CelebrationPill: View {
+    let text: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            Text(text)
+        }
+        .font(EcoTypography.caption)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(tint.opacity(0.12), in: Capsule())
     }
 }
 
@@ -2322,9 +2634,13 @@ struct AIChatView: View {
                             )
 
                         Button {
-                            appState.sendMessageToAI(text)
-                            text = ""
-                            inputFocused = true
+                            Task {
+                                let currentText = text
+                                let success = await appState.sendMessageToAI(currentText)
+                                guard success else { return }
+                                text = ""
+                                inputFocused = true
+                            }
                         } label: {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 16, weight: .black))
@@ -2340,10 +2656,15 @@ struct AIChatView: View {
                                 )
                         }
                         .buttonStyle(.plain)
-                        .disabled(!canSend)
-                        .opacity(canSend ? 1 : 0.5)
+                        .disabled(!canSend || appState.isSendingMessage)
+                        .opacity(canSend && !appState.isSendingMessage ? 1 : 0.5)
                     }
                     .surfaceCard()
+
+                    if appState.isSendingMessage {
+                        ProgressView()
+                            .tint(EcoTheme.primary)
+                    }
                 }
                 .padding(.horizontal)
                 .padding(.top, 10)
