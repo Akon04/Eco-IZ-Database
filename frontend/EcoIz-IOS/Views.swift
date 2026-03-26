@@ -1,0 +1,3187 @@
+import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
+
+struct AuthView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var stage: AuthStage = .welcome
+    @State private var fullName = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var confirmPassword = ""
+
+    private var canLogin: Bool {
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+    }
+
+    private var canRegister: Bool {
+        !fullName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !password.isEmpty &&
+        password == confirmPassword
+    }
+
+    private var passwordHint: String? {
+        guard !confirmPassword.isEmpty else { return nil }
+        return password == confirmPassword ? nil : "Пароли не совпадают"
+    }
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { proxy in
+                let compact = proxy.size.width < 390
+
+                ZStack {
+                    EcoBackground()
+
+                    VStack(spacing: compact ? 14 : 18) {
+                        HStack {
+                            if stage != .welcome {
+                                Button {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                        switch stage {
+                                        case .login, .register:
+                                            stage = .welcome
+                                        case .verifyEmail:
+                                            stage = .register
+                                        case .welcome:
+                                            break
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(EcoTheme.ink)
+                                        .frame(width: 36, height: 36)
+                                        .background(Color.white.opacity(0.92), in: Circle())
+                                        .overlay(Circle().stroke(Color.black.opacity(0.06), lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Spacer()
+                        }
+                        .padding(.top, compact ? 8 : 12)
+
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [EcoTheme.primary.opacity(0.25), EcoTheme.sky.opacity(0.2)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: compact ? 78 : 88, height: compact ? 78 : 88)
+                                Image(systemName: "leaf.fill")
+                                    .font(.system(size: compact ? 34 : 38, weight: .black))
+                                    .foregroundStyle(EcoTheme.primary)
+                            }
+                            Text("EcoIz")
+                                .font(EcoTypography.largeTitle)
+                                .foregroundStyle(EcoTheme.ink)
+                        }
+                        .padding(.top, compact ? 4 : 8)
+
+                        switch stage {
+                        case .welcome:
+                            VStack(spacing: 14) {
+                                VStack(spacing: 10) {
+                                    Text("Маленькие шаги каждый день.\nБольшие изменения для планеты.")
+                                        .font(EcoTypography.title2)
+                                        .foregroundStyle(EcoTheme.ink)
+                                        .multilineTextAlignment(.center)
+                                        .lineSpacing(2)
+                                }
+                                .padding(.vertical, 12)
+
+                                VStack(spacing: 10) {
+                                    AuthBenefitRow(icon: "flame.fill", text: "Собирай серию и повышай эко-уровень")
+                                    AuthBenefitRow(icon: "bolt.fill", text: "Добавляй активности и копи очки")
+                                    AuthBenefitRow(icon: "sparkles", text: "Получай советы от ИИ по экопривычкам")
+                                }
+                                .padding(14)
+                                .background(Color.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .stroke(Color.white.opacity(0.65), lineWidth: 1)
+                                )
+
+                                VStack(spacing: 10) {
+                                    Button("Войти") {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                            stage = .login
+                                        }
+                                    }
+                                    .buttonStyle(DuoPrimaryButtonStyle())
+
+                                    Button("Создать аккаунт") {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                            stage = .register
+                                        }
+                                    }
+                                    .buttonStyle(DuoSecondaryButtonStyle())
+                                }
+                            }
+                            .padding(.top, 4)
+
+                        case .login:
+                            VStack(spacing: 12) {
+                                Text("Рады видеть тебя снова")
+                                    .font(EcoTypography.title2)
+                                    .foregroundStyle(EcoTheme.ink)
+
+                                DuoInputField(title: "Эл. почта", text: $email)
+                                    .textInputAutocapitalization(.never)
+                                    .keyboardType(.emailAddress)
+                                DuoInputSecureField(title: "Пароль", text: $password)
+
+                                if appState.isAuthenticating {
+                                    ProgressView()
+                                        .tint(EcoTheme.primary)
+                                }
+
+                                Button("Войти") {
+                                    Task {
+                                        _ = await appState.signIn(email: email, password: password)
+                                    }
+                                }
+                                .buttonStyle(DuoPrimaryButtonStyle())
+                                .disabled(!canLogin || appState.isAuthenticating)
+                                .opacity((canLogin && !appState.isAuthenticating) ? 1 : 0.55)
+
+                                Button("Нет аккаунта? Зарегистрироваться") {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                        stage = .register
+                                    }
+                                }
+                                .font(EcoTypography.subheadline)
+                                .foregroundStyle(EcoTheme.primary)
+                                .buttonStyle(.plain)
+                            }
+                            .duoCard()
+
+                        case .register:
+                            VStack(spacing: 12) {
+                                Text("Создай аккаунт")
+                                    .font(EcoTypography.title2)
+                                    .foregroundStyle(EcoTheme.ink)
+
+                                DuoInputField(title: "ФИО", text: $fullName)
+                                DuoInputField(title: "Эл. почта", text: $email)
+                                    .textInputAutocapitalization(.never)
+                                    .keyboardType(.emailAddress)
+                                DuoInputSecureField(title: "Пароль", text: $password)
+                                DuoInputSecureField(title: "Подтверди пароль", text: $confirmPassword)
+
+                                if let passwordHint {
+                                    Text(passwordHint)
+                                        .font(EcoTypography.caption)
+                                        .foregroundStyle(Color.red.opacity(0.8))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+
+                                if appState.isAuthenticating {
+                                    ProgressView()
+                                        .tint(EcoTheme.primary)
+                                }
+
+                                Button("Продолжить") {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                        stage = .verifyEmail
+                                    }
+                                }
+                                .buttonStyle(DuoPrimaryButtonStyle())
+                                .disabled(!canRegister || appState.isAuthenticating)
+                                .opacity((canRegister && !appState.isAuthenticating) ? 1 : 0.55)
+                            }
+                            .duoCard()
+
+                        case .verifyEmail:
+                            VStack(spacing: 14) {
+                                Text("Подтверди почту")
+                                    .font(EcoTypography.title2)
+                                    .foregroundStyle(EcoTheme.ink)
+                                Text("Отправили письмо на \(email). Подтверди почту и продолжай путь эко-воина.")
+                                    .font(EcoTypography.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .lineSpacing(2)
+
+                                HStack(spacing: 10) {
+                                    Image(systemName: "envelope.badge.fill")
+                                        .foregroundStyle(EcoTheme.primary)
+                                    Text("Проверь также папку «Спам»")
+                                        .font(EcoTypography.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if appState.isAuthenticating {
+                                    ProgressView()
+                                        .tint(EcoTheme.primary)
+                                }
+
+                                Button("Я подтвердил почту") {
+                                    Task {
+                                        _ = await appState.register(name: fullName, email: email, password: password)
+                                    }
+                                }
+                                .buttonStyle(DuoPrimaryButtonStyle())
+                                .disabled(appState.isAuthenticating)
+                                .opacity(appState.isAuthenticating ? 0.55 : 1)
+
+                                Button("Отправить письмо еще раз") {}
+                                    .buttonStyle(DuoSecondaryButtonStyle())
+                            }
+                            .duoCard()
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, compact ? 14 : 18)
+                    .padding(.bottom, compact ? 16 : 20)
+                }
+            }
+            .navigationBarHidden(true)
+        }
+    }
+}
+
+private enum AuthStage {
+    case welcome
+    case login
+    case register
+    case verifyEmail
+}
+
+private struct AuthBenefitRow: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(EcoTheme.primary)
+            Text(text)
+                .font(EcoTypography.subheadline)
+                .foregroundStyle(EcoTheme.ink.opacity(0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 2)
+    }
+}
+
+struct MainTabView: View {
+    @State private var isChatPresented = false
+    @State private var isAddPresented = false
+    @State private var selectedTab = 0
+    @State private var previousTab = 0
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let safeBottom = max(proxy.safeAreaInsets.bottom, 8)
+            let chatSize = min(max(width * 0.16, 56), 68)
+            let addSize = min(max(width * 0.17, 58), 72)
+            let addIconSize = addSize * 0.46
+            let addLift = max(10, min(22, safeBottom * 0.55))
+
+            ZStack(alignment: .bottom) {
+                TabView(selection: $selectedTab) {
+                    HomeView()
+                        .tabItem { Label("Главная", systemImage: "house.fill") }
+                        .tag(0)
+
+                    ChallengesView()
+                        .tabItem { Label("Челленджи", systemImage: "flag.checkered.2.crossed") }
+                        .tag(1)
+
+                    Color.clear
+                        .tabItem {
+                            Text(" ")
+                        }
+                        .tag(2)
+
+                    NewsView()
+                        .tabItem { Label("Лента", systemImage: "newspaper.fill") }
+                        .tag(3)
+
+                    ProfileView()
+                        .tabItem { Label("Профиль", systemImage: "person.crop.circle.fill") }
+                        .tag(4)
+                }
+                .tint(EcoTheme.primary)
+                .onChange(of: selectedTab) { _, newValue in
+                    if newValue == 2 {
+                        selectedTab = previousTab
+                        return
+                    }
+                    previousTab = newValue
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    Button {
+                        isChatPresented = true
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(LinearGradient(colors: [EcoTheme.sky, EcoTheme.primary], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .frame(width: chatSize, height: chatSize)
+                            Image(systemName: "sparkles")
+                                .font(.system(size: chatSize * 0.36, weight: .black))
+                                .foregroundStyle(.white)
+                        }
+                        .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 3))
+                        .shadow(color: EcoTheme.sky.opacity(0.4), radius: 12, y: 6)
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.bottom, safeBottom + addSize * 0.78)
+                }
+                .overlay(alignment: .bottom) {
+                    Button {
+                        isAddPresented = true
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [EcoTheme.primary, EcoTheme.secondary],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: addSize, height: addSize)
+                            Image(systemName: "plus")
+                                .font(.system(size: addIconSize, weight: .heavy))
+                                .foregroundStyle(.white)
+                        }
+                        .overlay(Circle().stroke(.white, lineWidth: 4))
+                        .shadow(color: EcoTheme.primary.opacity(0.35), radius: 14, y: 8)
+                    }
+                    .accessibilityLabel("Добавить активность")
+                    .accessibilityHint("Открыть экран добавления активности")
+                    .offset(y: -addLift)
+                }
+            }
+        }
+        .sheet(isPresented: $isChatPresented) {
+            AIChatView()
+        }
+        .sheet(isPresented: $isAddPresented) {
+            AddActivityView()
+        }
+    }
+}
+
+struct HomeView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var heroProgress: CGFloat = 0
+    @State private var contentVisible = false
+    @State private var chartProgress: CGFloat = 0
+    @State private var selectedTrendIndex = 3
+
+    private let trend: [TrendDataPoint] = [
+        .init(day: "Пн", points: 360),
+        .init(day: "Вт", points: 420),
+        .init(day: "Ср", points: 600),
+        .init(day: "Чт", points: 520),
+        .init(day: "Пт", points: 660),
+        .init(day: "Сб", points: 480)
+    ]
+    private var levelInfo: (name: String, progress: CGFloat, remaining: Int) {
+        let level = appState.user.level
+        guard let upperBound = level.upperBoundExclusive else {
+            return (level.rawValue, 1.0, 0)
+        }
+        let range = max(upperBound - level.lowerBound, 1)
+        let current = min(max(appState.user.points - level.lowerBound, 0), range)
+        return ("Прогресс уровня \(level.number)", CGFloat(Double(current) / Double(range)), max(upperBound - appState.user.points, 0))
+    }
+
+    private var selectedPoint: TrendDataPoint {
+        trend[selectedTrendIndex]
+    }
+
+    private var streakVisualProgress: CGFloat {
+        CGFloat(min(max(appState.user.streakDays, 0), 30)) / 30
+    }
+
+    private var streakFlameSize: CGFloat {
+        20 + streakVisualProgress * 10
+    }
+
+    private var streakFlameGlow: Double {
+        0.18 + Double(streakVisualProgress) * 0.42
+    }
+
+    private var impactItems: [ImpactCardModel] {
+        let waterActions = appState.activities.filter { $0.category == .water }.count
+        let energyActions = appState.activities.filter { $0.category == .energy }.count
+        return [
+            ImpactCardModel(
+                value: "\(String(format: "%.1f", appState.user.co2SavedTotal)) кг",
+                title: "Сохранено CO₂",
+                icon: "wind",
+                tint: Color(hex: 0x2F80ED),
+                background: Color(hex: 0xE7F0FF)
+            ),
+            ImpactCardModel(
+                value: "\(max(80, waterActions * 24)) л",
+                title: "Сэкономлено воды",
+                icon: "drop.fill",
+                tint: Color(hex: 0x11A7D8),
+                background: Color(hex: 0xE6F7FF)
+            ),
+            ImpactCardModel(
+                value: "\(max(12, appState.activities.count * 2))",
+                title: "Посажено деревьев",
+                icon: "leaf.fill",
+                tint: Color(hex: 0x0FB56A),
+                background: Color(hex: 0xE7FAEE)
+            ),
+            ImpactCardModel(
+                value: "\(max(50, energyActions * 14)) кВт·ч",
+                title: "Сэкономлено энергии",
+                icon: "bolt.fill",
+                tint: Color(hex: 0xE7A700),
+                background: Color(hex: 0xFFF9E6)
+            )
+        ]
+    }
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                let compactLayout = width < 390
+                let avatarSize: CGFloat = compactLayout ? 54 : 62
+                let heroValueFont = min(max(width * 0.14, 46), 62)
+
+                ZStack {
+                    EcoBackground()
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Group {
+                                if compactLayout {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    HStack(spacing: 12) {
+                                        Circle()
+                                            .fill(Color(hex: 0x111111))
+                                            .frame(width: avatarSize, height: avatarSize)
+                                            .overlay(
+                                                Text(initials(from: appState.user.fullName))
+                                                    .font(EcoTypography.title2)
+                                                    .foregroundStyle(.white)
+                                            )
+                                            .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text(appState.user.fullName)
+                                                .font(EcoTypography.title1)
+                                                .lineLimit(1)
+                                                .minimumScaleFactor(0.7)
+                                            PillBadge(
+                                                icon: "trophy.fill",
+                                                text: appState.user.level.rawValue,
+                                                foreground: EcoTheme.ink,
+                                                background: Color.white.opacity(0.72)
+                                            )
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+
+                                }
+                                } else {
+                                HStack(alignment: .top) {
+                                    HStack(spacing: 12) {
+                                        Circle()
+                                            .fill(Color(hex: 0x111111))
+                                            .frame(width: avatarSize, height: avatarSize)
+                                            .overlay(
+                                                Text(initials(from: appState.user.fullName))
+                                                    .font(EcoTypography.title2)
+                                                    .foregroundStyle(.white)
+                                            )
+                                            .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text(appState.user.fullName)
+                                                .font(EcoTypography.title1)
+                                                .lineLimit(1)
+                                                .minimumScaleFactor(0.7)
+                                            PillBadge(
+                                                icon: "trophy.fill",
+                                                text: appState.user.level.rawValue,
+                                                foreground: EcoTheme.ink,
+                                                background: Color.white.opacity(0.72)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer()
+                                }
+                            }
+                            }
+                        .opacity(contentVisible ? 1 : 0)
+                        .offset(y: contentVisible ? 0 : 10)
+                        .animation(.easeOut(duration: 0.36), value: contentVisible)
+
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Всего эко-очков")
+                                .font(EcoTypography.title2)
+                                .foregroundStyle(.white.opacity(0.92))
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text("\(appState.user.points)")
+                                    .font(Font.system(size: heroValueFont, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                                Text("очк.")
+                                    .font(EcoTypography.title1)
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
+
+                            VStack(spacing: 8) {
+                                HStack {
+                                    Text(levelInfo.name)
+                                        .font(EcoTypography.headline)
+                                        .foregroundStyle(.white.opacity(0.9))
+                                    Spacer()
+                                    Text("\(Int(levelInfo.progress * 100))%")
+                                        .font(EcoTypography.headline)
+                                        .foregroundStyle(.white.opacity(0.9))
+                                }
+
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule()
+                                            .fill(Color.black.opacity(0.18))
+                                            .frame(height: 14)
+                                        Capsule()
+                                            .fill(Color(hex: 0xFFD500))
+                                            .frame(width: heroProgress * geo.size.width, height: 14)
+                                    }
+                                }
+                                .frame(height: 14)
+
+                                Text(levelInfo.remaining > 0
+                                     ? "\(levelInfo.remaining) очк. до следующего уровня"
+                                     : "Максимальный уровень достигнут")
+                                .font(EcoTypography.subheadline)
+                                .foregroundStyle(.white.opacity(0.75))
+                                .frame(maxWidth: .infinity, alignment: .center)
+                            }
+                        }
+                        .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: 0x43CF68), Color(hex: 0x4DC172)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                        .shadow(color: EcoTheme.primary.opacity(0.22), radius: 14, y: 8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .stroke(.white.opacity(0.15), lineWidth: 1)
+                        )
+                        .opacity(contentVisible ? 1 : 0)
+                        .offset(y: contentVisible ? 0 : 16)
+                        .animation(.spring(response: 0.55, dampingFraction: 0.82), value: contentVisible)
+
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(Color(hex: 0xFFF0E3))
+                                .frame(width: 54, height: 54)
+                                .overlay(
+                                    Image(systemName: "flame.fill")
+                                        .font(.system(size: streakFlameSize, weight: .bold))
+                                        .foregroundStyle(Color(hex: 0xF97316))
+                                        .shadow(color: Color(hex: 0xF97316).opacity(streakFlameGlow), radius: 10, y: 0)
+                                        .scaleEffect(1 + streakVisualProgress * 0.12)
+                                        .animation(.spring(response: 0.32, dampingFraction: 0.75), value: appState.user.streakDays)
+                                )
+                                .shadow(color: Color(hex: 0xF97316).opacity(streakFlameGlow * 0.55), radius: 12, y: 0)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Серия: \(appState.user.streakDays) \(dayWord(for: appState.user.streakDays)) подряд")
+                                    .font(EcoTypography.title2)
+                                    .foregroundStyle(EcoTheme.ink)
+                                Text("Отличный темп. Сегодня сэкономим электроэнергию: выключи лишний свет.")
+                                    .font(EcoTypography.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(3)
+                            }
+                            Spacer()
+                        }
+                        .padding(16)
+                        .background(Color.white.opacity(0.86), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .shadow(color: .black.opacity(0.08), radius: 10, y: 5)
+                        .opacity(contentVisible ? 1 : 0)
+                        .offset(y: contentVisible ? 0 : 14)
+                        .animation(.easeOut(duration: 0.36).delay(0.05), value: contentVisible)
+
+                        Text("Твой вклад")
+                            .font(EcoTypography.title1)
+                            .foregroundStyle(EcoTheme.ink)
+                            .padding(.top, 2)
+
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                            ForEach(Array(impactItems.enumerated()), id: \.offset) { index, item in
+                                ImpactCard(item: item)
+                                    .opacity(contentVisible ? 1 : 0)
+                                    .offset(y: contentVisible ? 0 : 20)
+                                    .animation(
+                                        .spring(response: 0.58, dampingFraction: 0.84).delay(0.08 * Double(index)),
+                                        value: contentVisible
+                                    )
+                            }
+                        }
+                        .padding(.bottom, 4)
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            HStack {
+                                Text("Динамика активностей")
+                                    .font(EcoTypography.title2)
+                                Spacer()
+                                Menu("Эта неделя") {
+                                    Button("Эта неделя") {}
+                                    Button("Прошлая неделя") {}
+                                }
+                                .font(EcoTypography.subheadline)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.86), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+
+                            TrendChart(
+                                points: trend.map(\.points),
+                                selectedIndex: $selectedTrendIndex,
+                                progress: chartProgress
+                            )
+                            .frame(height: 190)
+
+                            HStack {
+                                ForEach(Array(trend.enumerated()), id: \.offset) { index, point in
+                                    Button {
+                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                            selectedTrendIndex = index
+                                        }
+                                    } label: {
+                                        Text(point.day)
+                                            .font(selectedTrendIndex == index ? EcoTypography.headline : EcoTypography.subheadline)
+                                            .foregroundStyle(selectedTrendIndex == index ? EcoTheme.primary : .secondary)
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+
+                            HStack {
+                                Text(selectedPoint.day)
+                                    .font(EcoTypography.title2)
+                                Spacer()
+                                Text("очки: \(selectedPoint.points)")
+                                    .font(EcoTypography.headline)
+                                    .foregroundStyle(EcoTheme.primary)
+                            }
+                            .padding()
+                            .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .padding(14)
+                        .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(Color.white.opacity(0.6), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.05), radius: 10, y: 5)
+                        .opacity(contentVisible ? 1 : 0)
+                        .offset(y: contentVisible ? 0 : 20)
+                        .animation(.easeOut(duration: 0.45).delay(0.12), value: contentVisible)
+
+                    }
+                    .padding(.horizontal, compactLayout ? 14 : 16)
+                    .padding(.top, compactLayout ? 10 : 12)
+                    .padding(.bottom, 80)
+                }
+            }
+            }
+            .navigationBarHidden(true)
+        }
+        .onAppear {
+            heroProgress = 0
+            contentVisible = false
+            chartProgress = 0
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.85).delay(0.06)) {
+                contentVisible = true
+            }
+            withAnimation(.easeOut(duration: 1.0).delay(0.18)) {
+                heroProgress = max(0.05, min(levelInfo.progress, 1.0))
+            }
+            withAnimation(.easeOut(duration: 0.9).delay(0.28)) {
+                chartProgress = 1
+            }
+        }
+    }
+
+    private func initials(from name: String) -> String {
+        let words = name.split(separator: " ")
+        let chars = words.prefix(2).compactMap { $0.first }
+        return String(chars).uppercased()
+    }
+
+    private func dayWord(for count: Int) -> String {
+        let lastTwo = count % 100
+        let last = count % 10
+        if (11...14).contains(lastTwo) { return "дней" }
+        switch last {
+        case 1: return "день"
+        case 2...4: return "дня"
+        default: return "дней"
+        }
+    }
+}
+
+struct ChallengesView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var celebratingChallenge: Challenge?
+    @State private var isCelebrationVisible = false
+    @State private var selectedChallengeHint: Challenge?
+
+    private var visibleChallenges: [Challenge] {
+        appState.challenges.filter { !$0.isClaimed }
+    }
+
+    private var completionCount: Int {
+        appState.challenges.filter(\.isCompleted).count
+    }
+
+    private var overallProgress: Double {
+        let totalTarget = appState.challenges.reduce(0) { $0 + max($1.targetCount, 1) }
+        guard totalTarget > 0 else { return 0 }
+        let totalCurrent = appState.challenges.reduce(0) { $0 + min($1.currentCount, $1.targetCount) }
+        return min(max(Double(totalCurrent) / Double(totalTarget), 0), 1)
+    }
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { proxy in
+                let compactLayout = proxy.size.width < 390
+
+                ZStack {
+                    EcoBackground()
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Мои достижения")
+                                .font(EcoTypography.title1)
+                                .foregroundStyle(EcoTheme.ink)
+                            Text("Выполняй задания, закрывай прогресс и получай очки.")
+                                .font(EcoTypography.subheadline)
+                                .foregroundStyle(.secondary)
+                                .padding(.bottom, 2)
+
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Text("Сезонный прогресс")
+                                        .font(EcoTypography.headline)
+                                    Spacer()
+                                    Text("\(completionCount)/\(appState.challenges.count)")
+                                        .font(EcoTypography.headline)
+                                        .foregroundStyle(EcoTheme.primary)
+                                }
+
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule()
+                                            .fill(Color.black.opacity(0.08))
+                                            .frame(height: 12)
+                                        Capsule()
+                                            .fill(Color(hex: 0xF7C300))
+                                            .frame(width: geo.size.width * overallProgress, height: 12)
+                                    }
+                                }
+                                .frame(height: 12)
+
+                                HStack(spacing: 10) {
+                                    ChallengesStatChip(
+                                        title: "Очки за миссии",
+                                        value: "\(appState.challenges.reduce(0) { $0 + $1.rewardPoints })",
+                                        icon: "star.fill",
+                                        tint: Color(hex: 0xE7A700)
+                                    )
+                                    ChallengesStatChip(
+                                        title: "В процессе",
+                                        value: "\(visibleChallenges.filter { !$0.isCompleted }.count)",
+                                        icon: "bolt.fill",
+                                        tint: EcoTheme.primary
+                                    )
+                                }
+                            }
+                            .surfaceCard()
+
+                            if visibleChallenges.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Все текущие челленджи забраны")
+                                        .font(EcoTypography.title2)
+                                        .foregroundStyle(EcoTheme.ink)
+                                    Text("Новые ачивки уже в профиле. Выполняй следующие активности, и мы добавим больше миссий.")
+                                        .font(EcoTypography.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .surfaceCard()
+                            } else {
+                                LazyVStack(spacing: 12) {
+                                    ForEach(visibleChallenges) { item in
+                                        ChallengeAchievementCard(
+                                            challenge: item,
+                                            compact: compactLayout,
+                                            isClaiming: appState.isClaimingChallenge,
+                                            onOpenHint: {
+                                                selectedChallengeHint = item
+                                            },
+                                            onClaim: {
+                                                Task {
+                                                    guard let claimed = await appState.claimChallenge(item.id) else { return }
+                                                    await MainActor.run {
+                                                        celebratingChallenge = claimed
+                                                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                                                            isCelebrationVisible = true
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, compactLayout ? 14 : 16)
+                        .padding(.top, compactLayout ? 10 : 12)
+                        .padding(.bottom, 80)
+                    }
+
+                    if let celebratingChallenge, isCelebrationVisible {
+                        ChallengeClaimCelebrationOverlay(challenge: celebratingChallenge) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                isCelebrationVisible = false
+                            }
+                            celebratingChallenge = nil
+                        }
+                            .transition(.asymmetric(insertion: .scale(scale: 0.92).combined(with: .opacity), removal: .opacity))
+                    }
+                }
+            }
+            .navigationBarHidden(true)
+            .sheet(item: $selectedChallengeHint) { challenge in
+                ChallengeHintSheet(challenge: challenge)
+            }
+        }
+    }
+}
+
+struct AddActivityView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedCategory: ActivityCategory?
+    @State private var selectedTransportTemplate: ActivityTemplate?
+    @State private var transportDistance: Double = 7
+    @State private var draftActivity: PendingActivity?
+    @State private var pendingSubmission: PendingActivitySubmission?
+    @State private var activityPickerItems: [PhotosPickerItem] = []
+    @State private var activityMedia: [PostMediaAttachment] = []
+    @State private var activityNote = ""
+    @State private var customTitle = ""
+    @State private var customCO2 = ""
+    @State private var customPoints = ""
+
+    private var quickCategories: [ActivityCategory] {
+        [.transport, .water, .plastic, .waste, .energy, .custom]
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack {
+                            Text("Добавить активность")
+                                .font(EcoTypography.title1)
+                                .foregroundStyle(EcoTheme.ink)
+                            Spacer()
+                            Button {
+                                dismiss()
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 34, height: 34)
+                                    .background(Color.white.opacity(0.9), in: Circle())
+                                    .overlay(Circle().stroke(Color.black.opacity(0.06), lineWidth: 1))
+                            }
+                        }
+
+                        if let selectedCategory {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Button {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                        pendingSubmission = nil
+                                        draftActivity = nil
+                                        selectedTransportTemplate = nil
+                                        self.selectedCategory = nil
+                                    }
+                                } label: {
+                                    Label("Назад к категориям", systemImage: "chevron.left")
+                                        .font(EcoTypography.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+
+                                Text(title(for: selectedCategory))
+                                    .font(EcoTypography.title2)
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.horizontal, 2)
+
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [color(for: selectedCategory).opacity(0.75), color(for: selectedCategory)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                            .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                                    )
+                                    .shadow(color: color(for: selectedCategory).opacity(0.28), radius: 14, y: 8)
+
+                                if let pendingSubmission {
+                                    VStack(alignment: .leading, spacing: 16) {
+                                        Text(pendingSubmission.title)
+                                            .font(EcoTypography.title2)
+                                            .foregroundStyle(.white)
+                                            .multilineTextAlignment(.leading)
+                                        Text("Категория: \(pendingSubmission.category.rawValue)")
+                                            .font(EcoTypography.subheadline)
+                                            .foregroundStyle(.white.opacity(0.9))
+
+                                        Spacer(minLength: 10)
+
+                                        VStack(spacing: 8) {
+                                            Text("Сокращено CO₂")
+                                                .font(EcoTypography.title2)
+                                                .foregroundStyle(.white)
+                                            Circle()
+                                                .fill(Color(hex: 0xD7F4BD))
+                                                .frame(width: 82, height: 82)
+                                                .overlay(
+                                                    Image(systemName: "leaf.fill")
+                                                        .font(.system(size: 36, weight: .bold))
+                                                        .foregroundStyle(Color(hex: 0x69A83F))
+                                                )
+                                            Text("\(String(format: "%.1f", pendingSubmission.co2)) кг")
+                                                .font(EcoTypography.title2)
+                                                .foregroundStyle(.white)
+                                        }
+                                        .frame(maxWidth: .infinity)
+
+                                        Spacer(minLength: 8)
+
+                                        HStack(spacing: 10) {
+                                            Button("Поделиться") {
+                                                Task {
+                                                    await commitSubmission(shareToNews: true)
+                                                }
+                                            }
+                                            .buttonStyle(DuoSecondaryButtonStyle())
+                                            .disabled(appState.isSubmittingActivity)
+                                            .opacity(appState.isSubmittingActivity ? 0.55 : 1)
+
+                                            Button("Готово") {
+                                                Task {
+                                                    await commitSubmission(shareToNews: false)
+                                                }
+                                            }
+                                            .buttonStyle(DuoPrimaryButtonStyle())
+                                            .disabled(appState.isSubmittingActivity)
+                                            .opacity(appState.isSubmittingActivity ? 0.55 : 1)
+                                        }
+
+                                        if appState.isSubmittingActivity {
+                                            ProgressView()
+                                                .tint(.white)
+                                                .frame(maxWidth: .infinity)
+                                        }
+                                    }
+                                    .padding(16)
+                                } else if let draftActivity {
+                                    VStack(alignment: .leading, spacing: 14) {
+                                        Button {
+                                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                                self.draftActivity = nil
+                                            }
+                                        } label: {
+                                            Label("Назад", systemImage: "chevron.left")
+                                                .font(EcoTypography.subheadline)
+                                                .foregroundStyle(.white.opacity(0.9))
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        Text(draftActivity.title)
+                                            .font(EcoTypography.title2)
+                                            .foregroundStyle(.white)
+
+                                        PhotosPicker(
+                                            selection: $activityPickerItems,
+                                            maxSelectionCount: 3,
+                                            matching: .any(of: [.images, .videos])
+                                        ) {
+                                            Label("Добавить фото/видео", systemImage: "camera.fill")
+                                                .font(EcoTypography.callout)
+                                                .foregroundStyle(.white)
+                                                .padding(.vertical, 10)
+                                                .frame(maxWidth: .infinity)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                        .fill(Color.white.opacity(0.18))
+                                                )
+                                        }
+
+                                        if !activityMedia.isEmpty {
+                                            ThreadMediaStrip(media: activityMedia)
+                                        }
+
+                                        ZStack(alignment: .topLeading) {
+                                            TextEditor(text: $activityNote)
+                                                .scrollContentBackground(.hidden)
+                                                .font(EcoTypography.body)
+                                                .foregroundStyle(EcoTheme.ink)
+                                                .padding(10)
+                                                .frame(minHeight: 120)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                        .fill(Color.white.opacity(0.95))
+                                                )
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                                                )
+
+                                            if activityNote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                                Text("Напишите описание...")
+                                                    .font(EcoTypography.body)
+                                                    .foregroundStyle(.secondary)
+                                                    .padding(.top, 20)
+                                                    .padding(.leading, 16)
+                                                    .allowsHitTesting(false)
+                                            }
+                                        }
+
+                                        HStack(spacing: 10) {
+                                            Button("Пропустить") {
+                                                completeDraft(saveMedia: false)
+                                            }
+                                            .buttonStyle(DuoSecondaryButtonStyle())
+
+                                            Button("Сохранить") {
+                                                completeDraft(saveMedia: true)
+                                            }
+                                            .buttonStyle(DuoPrimaryButtonStyle())
+                                        }
+                                    }
+                                    .padding(16)
+                                } else if selectedCategory == .custom {
+                                    VStack(spacing: 10) {
+                                        DuoInputField(title: "Название активности", text: $customTitle)
+                                        DuoInputField(title: "CO₂ (кг)", text: $customCO2)
+                                            .keyboardType(.decimalPad)
+                                        DuoInputField(title: "Очки", text: $customPoints)
+                                            .keyboardType(.numberPad)
+                                        Button("Продолжить") {
+                                            let co2 = Double(customCO2) ?? 0.2
+                                            let points = Int(customPoints) ?? 5
+                                            startDraft(
+                                                category: .custom,
+                                                title: customTitle.isEmpty ? "Своя активность" : customTitle,
+                                                co2: co2,
+                                                points: points
+                                            )
+                                        }
+                                        .buttonStyle(DuoPrimaryButtonStyle())
+                                    }
+                                    .padding(16)
+                                } else if selectedCategory == .transport, let transport = selectedTransportTemplate {
+                                    VStack(alignment: .leading, spacing: 16) {
+                                        Button {
+                                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                                selectedTransportTemplate = nil
+                                            }
+                                        } label: {
+                                            Label("Назад к транспорту", systemImage: "chevron.left")
+                                                .font(EcoTypography.subheadline)
+                                                .foregroundStyle(.white.opacity(0.9))
+                                        }
+                                        .buttonStyle(.plain)
+
+                                        Text(transport.title)
+                                            .font(EcoTypography.title2)
+                                            .foregroundStyle(.white)
+
+                                        HStack {
+                                            Text("Дистанция:")
+                                                .font(EcoTypography.title2)
+                                                .foregroundStyle(.white)
+                                            Spacer()
+                                            Text("\(Int(transportDistance)) км")
+                                                .font(EcoTypography.title2)
+                                                .foregroundStyle(.white)
+                                        }
+
+                                        Slider(value: $transportDistance, in: 1...10, step: 1)
+                                            .tint(.white)
+
+                                        HStack {
+                                            Text("1 км")
+                                                .font(EcoTypography.caption)
+                                                .foregroundStyle(.white.opacity(0.9))
+                                            Spacer()
+                                            Text("10 км")
+                                                .font(EcoTypography.caption)
+                                                .foregroundStyle(.white.opacity(0.9))
+                                        }
+
+                                        Spacer(minLength: 12)
+
+                                        Button("Продолжить") {
+                                            let factor = transportDistance / 5.0
+                                            let co2 = max(0.1, transport.estimatedCO2 * factor)
+                                            let points = max(1, Int((Double(transport.points) * factor).rounded()))
+                                            startDraft(
+                                                category: .transport,
+                                                title: "\(transport.title) • \(Int(transportDistance)) км",
+                                                co2: co2,
+                                                points: points
+                                            )
+                                        }
+                                        .buttonStyle(DuoPrimaryButtonStyle())
+                                    }
+                                    .padding(16)
+                                } else {
+                                    let templates = appState.templatesByCategory[selectedCategory] ?? []
+                                    LazyVGrid(
+                                        columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)],
+                                        spacing: 16
+                                    ) {
+                                        ForEach(templates) { item in
+                                            AddSubactivityTile(
+                                                title: item.title,
+                                                icon: subIcon(for: selectedCategory, title: item.title)
+                                            ) {
+                                                if selectedCategory == .transport {
+                                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                                        selectedTransportTemplate = item
+                                                        transportDistance = 7
+                                                    }
+                                                } else {
+                                                    startDraft(
+                                                        category: selectedCategory,
+                                                        title: item.title,
+                                                        co2: item.estimatedCO2,
+                                                        points: item.points
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(16)
+                                }
+                            }
+                            .frame(minHeight: 420)
+                        } else {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Категории")
+                                    .font(EcoTypography.title2)
+                                Text("Сначала выбери категорию, потом подкатегорию")
+                                    .font(EcoTypography.subheadline)
+                                    .foregroundStyle(.secondary)
+
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [Color(hex: 0x67C6F3), Color(hex: 0x3EA9E4), Color(hex: 0x2996D8)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                                        )
+                                        .shadow(color: EcoTheme.sky.opacity(0.24), radius: 14, y: 8)
+
+                                    LazyVGrid(
+                                        columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)],
+                                        spacing: 14
+                                    ) {
+                                        ForEach(quickCategories) { category in
+                                            AddCategoryTile(
+                                                title: category.rawValue,
+                                                icon: icon(for: category),
+                                                tint: color(for: category),
+                                                isSelected: false
+                                            ) {
+                                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                                    selectedTransportTemplate = nil
+                                                    selectedCategory = category
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(16)
+                                }
+                            }
+                            .surfaceCard()
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 80)
+                }
+            }
+            .navigationBarHidden(true)
+        }
+        .onChange(of: activityPickerItems) { _, newItems in
+            Task {
+                await loadActivityMedia(from: newItems)
+            }
+        }
+    }
+
+    private func startDraft(category: ActivityCategory, title: String, co2: Double, points: Int) {
+        draftActivity = PendingActivity(category: category, title: title, co2: co2, points: points)
+        pendingSubmission = nil
+        activityPickerItems = []
+        activityMedia = []
+        activityNote = ""
+    }
+
+    private func completeDraft(saveMedia: Bool) {
+        guard let draftActivity else { return }
+        pendingSubmission = PendingActivitySubmission(
+            category: draftActivity.category,
+            title: draftActivity.title,
+            co2: draftActivity.co2,
+            points: draftActivity.points,
+            note: saveMedia ? activityNote : nil,
+            media: saveMedia ? activityMedia : []
+        )
+        self.draftActivity = nil
+    }
+
+    private func commitSubmission(shareToNews: Bool) async {
+        guard let pendingSubmission else { return }
+        let success = await appState.addActivity(
+            category: pendingSubmission.category,
+            title: pendingSubmission.title,
+            co2: pendingSubmission.co2,
+            points: pendingSubmission.points,
+            note: pendingSubmission.note,
+            media: pendingSubmission.media,
+            shareToNews: shareToNews
+        )
+        if success {
+            dismiss()
+        }
+    }
+
+    private func loadActivityMedia(from items: [PhotosPickerItem]) async {
+        var loaded: [PostMediaAttachment] = []
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else { continue }
+            let isVideo = item.supportedContentTypes.contains {
+                $0.conforms(to: .movie) || $0.conforms(to: .video)
+            }
+            loaded.append(
+                PostMediaAttachment(
+                    kind: isVideo ? .video : .photo,
+                    data: data
+                )
+            )
+        }
+        await MainActor.run {
+            activityMedia = loaded
+        }
+    }
+
+    private func title(for category: ActivityCategory) -> String {
+        switch category {
+        case .transport: return "Выбери транспорт"
+        case .water: return "Выбери водную активность"
+        case .plastic: return "Выбери шаг без пластика"
+        case .waste: return "Выбери активность по отходам"
+        case .energy: return "Выбери энергосбережение"
+        case .custom: return "Добавь свою активность"
+        }
+    }
+
+    private func icon(for category: ActivityCategory) -> String {
+        switch category {
+        case .transport: return "tram.fill"
+        case .water: return "drop.fill"
+        case .plastic: return "bag.fill"
+        case .waste: return "arrow.triangle.2.circlepath"
+        case .energy: return "bolt.fill"
+        case .custom: return "sparkles"
+        }
+    }
+
+    private func color(for category: ActivityCategory) -> Color {
+        switch category {
+        case .transport: return Color(hex: 0xF6A51A)
+        case .water: return Color(hex: 0x11A7D8)
+        case .plastic: return Color(hex: 0x1FAF66)
+        case .waste: return Color(hex: 0x4F8DF4)
+        case .energy: return Color(hex: 0xF6C300)
+        case .custom: return EcoTheme.primary
+        }
+    }
+
+    private func subIcon(for category: ActivityCategory, title: String) -> String {
+        switch category {
+        case .transport:
+            if title.contains("Пеш") { return "figure.walk" }
+            if title.contains("Метро") { return "tram.fill" }
+            if title.contains("Велосипед") { return "bicycle" }
+            if title.contains("Самокат") { return "scooter" }
+            if title.contains("Автобус") { return "bus.fill" }
+            return "car.fill"
+        case .water:
+            if title.contains("душ") { return "drop.fill" }
+            if title.contains("кран") { return "faucet.fill" }
+            if title.contains("утеч") { return "wrench.adjustable.fill" }
+            if title.contains("аэратор") { return "gearshape.fill" }
+            return "drop.triangle.fill"
+        case .plastic:
+            if title.contains("пакета") { return "xmark.circle.fill" }
+            if title.contains("сумка") { return "bag.fill" }
+            if title.contains("бутылка") { return "takeoutbag.and.cup.and.straw.fill" }
+            return "arrow.triangle.2.circlepath"
+        case .waste:
+            if title.contains("Сортировка") { return "line.3.horizontal.decrease.circle" }
+            if title.contains("вторсыр") { return "arrow.3.trianglepath" }
+            return "leaf.fill"
+        case .energy:
+            if title.contains("Выключил") { return "lightbulb.slash.fill" }
+            if title.contains("Отключил") { return "powerplug.fill" }
+            if title.contains("LED") { return "lightbulb.led.fill" }
+            if title.contains("дневной") { return "sun.max.fill" }
+            return "bolt.fill"
+        case .custom:
+            return "sparkles"
+        }
+    }
+}
+
+struct NewsView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var postText = ""
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var selectedMedia: [PostMediaAttachment] = []
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Твой EcoIz")
+                            .font(EcoTypography.title1)
+                            .foregroundStyle(EcoTheme.ink)
+                        Spacer()
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+
+                    ThreadComposerBar(
+                        text: $postText,
+                        pickerItems: $pickerItems,
+                        selectedMedia: $selectedMedia,
+                        username: appState.user.fullName,
+                        isPosting: appState.isPosting,
+                        onPost: {
+                            Task {
+                                let success = await appState.addPost(text: postText, media: selectedMedia)
+                                guard success else { return }
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    postText = ""
+                                    selectedMedia = []
+                                    pickerItems = []
+                                }
+                            }
+                        }
+                    )
+                    .padding(.horizontal)
+
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(appState.posts) { post in
+                                ThreadPostCell(post: post)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.bottom, 80)
+                    }
+                }
+            }
+            .navigationBarHidden(true)
+        }
+        .onChange(of: pickerItems) { _, newItems in
+            Task {
+                await loadMedia(from: newItems)
+            }
+        }
+    }
+
+    private func loadMedia(from items: [PhotosPickerItem]) async {
+        var loaded: [PostMediaAttachment] = []
+
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else { continue }
+            let isVideo = item.supportedContentTypes.contains {
+                $0.conforms(to: .movie) || $0.conforms(to: .video)
+            }
+            loaded.append(
+                PostMediaAttachment(
+                    kind: isVideo ? .video : .photo,
+                    data: data
+                )
+            )
+        }
+
+        await MainActor.run {
+            selectedMedia = loaded
+        }
+    }
+}
+
+private struct ThreadComposerBar: View {
+    @Binding var text: String
+    @Binding var pickerItems: [PhotosPickerItem]
+    @Binding var selectedMedia: [PostMediaAttachment]
+    let username: String
+    let isPosting: Bool
+    let onPost: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            avatar(initials: initials(from: username))
+
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Что нового?", text: $text, axis: .vertical)
+                    .font(EcoTypography.body)
+                    .lineLimit(1...4)
+
+                if !selectedMedia.isEmpty {
+                    ThreadMediaStrip(media: selectedMedia)
+                }
+
+                HStack {
+                    PhotosPicker(
+                        selection: $pickerItems,
+                        maxSelectionCount: 4,
+                        matching: .any(of: [.images, .videos])
+                    ) {
+                        Label("Медиа", systemImage: "paperclip")
+                            .font(EcoTypography.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Опубликовать", action: onPost)
+                        .font(EcoTypography.buttonSecondary)
+                        .foregroundStyle(EcoTheme.primary)
+                        .opacity((text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedMedia.isEmpty) || isPosting ? 0.5 : 1)
+                        .disabled((text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedMedia.isEmpty) || isPosting)
+                }
+
+                if isPosting {
+                    ProgressView()
+                        .tint(EcoTheme.primary)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
+    }
+
+    private func initials(from name: String) -> String {
+        let words = name.split(separator: " ")
+        let chars = words.prefix(2).compactMap { $0.first }
+        return String(chars).uppercased()
+    }
+
+    private func avatar(initials: String) -> some View {
+        Circle()
+            .fill(Color.black)
+            .frame(width: 40, height: 40)
+            .overlay(
+                Text(initials)
+                    .font(EcoTypography.footnote)
+                    .foregroundStyle(.white)
+            )
+    }
+}
+
+private struct ThreadPostCell: View {
+    let post: EcoPost
+    @State private var liked = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                avatar(initials: initials(from: post.author))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(post.author)
+                            .font(EcoTypography.headline)
+                        Spacer()
+                        Text(relativeTime(post.createdAt))
+                            .font(EcoTypography.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(handle(from: post.author))
+                        .font(EcoTypography.caption)
+                        .foregroundStyle(.secondary)
+                    Text(post.text)
+                        .font(EcoTypography.body)
+                        .foregroundStyle(EcoTheme.ink)
+                        .padding(.top, 2)
+
+                    if !post.media.isEmpty {
+                        ThreadMediaGrid(media: post.media)
+                            .padding(.top, 2)
+                    }
+
+                    HStack(spacing: 18) {
+                        actionButton(icon: "bubble.left", count: pseudoCount(seed: 3))
+                        actionButton(icon: "arrow.2.squarepath", count: pseudoCount(seed: 5))
+                        Button {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                                liked.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: liked ? "heart.fill" : "heart")
+                                    .foregroundStyle(liked ? Color.red : .secondary)
+                                Text("\(pseudoCount(seed: 7) + (liked ? 1 : 0))")
+                                    .font(EcoTypography.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        actionButton(icon: "paperplane", count: nil)
+                    }
+                    .padding(.top, 3)
+                }
+            }
+            Divider()
+                .padding(.leading, 50)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func actionButton(icon: String, count: Int?) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+            if let count {
+                Text("\(count)")
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func pseudoCount(seed: Int) -> Int {
+        abs(post.id.hashValue / max(seed, 1)) % 30 + 1
+    }
+
+    private func handle(from name: String) -> String {
+        let clean = name.lowercased().replacingOccurrences(of: " ", with: "")
+        return "@\(clean)"
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func initials(from name: String) -> String {
+        let words = name.split(separator: " ")
+        let chars = words.prefix(2).compactMap { $0.first }
+        return String(chars).uppercased()
+    }
+
+    private func avatar(initials: String) -> some View {
+        Circle()
+            .fill(Color.black)
+            .frame(width: 36, height: 36)
+            .overlay(
+                Text(initials)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.white)
+            )
+    }
+}
+
+private struct ThreadMediaStrip: View {
+    let media: [PostMediaAttachment]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(media) { item in
+                    ThreadMediaThumbnail(item: item, height: 80)
+                }
+            }
+        }
+    }
+}
+
+private struct ThreadMediaGrid: View {
+    let media: [PostMediaAttachment]
+
+    private var columns: [GridItem] {
+        media.count == 1
+            ? [GridItem(.flexible())]
+            : [GridItem(.flexible()), GridItem(.flexible())]
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(media) { item in
+                ThreadMediaThumbnail(item: item, height: media.count == 1 ? 220 : 130)
+            }
+        }
+    }
+}
+
+private struct ThreadMediaThumbnail: View {
+    let item: PostMediaAttachment
+    let height: CGFloat
+
+    var body: some View {
+        Group {
+            if item.kind == .photo, let image = UIImage(data: item.data) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    LinearGradient(
+                        colors: [Color(hex: 0xEAF0F5), Color(hex: 0xDCE6EE)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    VStack(spacing: 6) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(EcoTheme.ink.opacity(0.82))
+                        Text("Видео")
+                            .font(EcoTypography.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+struct ProfileView: View {
+    @EnvironmentObject private var appState: AppState
+    @State private var showAllChallengeAchievements = false
+    @State private var showAllActivities = false
+    @State private var selectedAchievement: Challenge?
+
+    var completedChallengeAchievements: [Challenge] {
+        appState.challenges.filter(\.isClaimed)
+    }
+
+    var profileAchievementPreview: [Challenge] {
+        Array(completedChallengeAchievements.prefix(3))
+    }
+
+    var nextLevelProgress: CGFloat {
+        let level = appState.user.level
+        guard let upperBound = level.upperBoundExclusive else {
+            return 1
+        }
+        let range = max(upperBound - level.lowerBound, 1)
+        return CGFloat(min(Double(max(appState.user.points - level.lowerBound, 0)) / Double(range), 1))
+    }
+
+    var pointsToNext: Int {
+        guard let upperBound = appState.user.level.upperBoundExclusive else {
+            return 0
+        }
+        return max(upperBound - appState.user.points, 0)
+    }
+
+    var weeklyActivities: [EcoActivity] {
+        let start = Calendar.current.date(byAdding: .day, value: -6, to: Date()) ?? Date()
+        return appState.activities.filter { $0.createdAt >= start }
+    }
+
+    var bestCategoryTitle: String {
+        let grouped = Dictionary(grouping: weeklyActivities, by: \.category)
+        let top = grouped.max { $0.value.count < $1.value.count }?.key
+        return top?.rawValue ?? "Нет данных"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                ScrollView {
+                    VStack(spacing: 14) {
+                        HStack {
+                            Text("Профиль")
+                                .font(EcoTypography.title1)
+                            Spacer()
+                        }
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color(hex: 0xE5F8EF))
+                                            .frame(width: 84, height: 84)
+                                        Circle()
+                                            .stroke(EcoTheme.primary, lineWidth: 3)
+                                            .frame(width: 84, height: 84)
+                                        Text(initials(from: appState.user.fullName))
+                                            .font(EcoTypography.title1)
+                                            .foregroundStyle(EcoTheme.primary)
+                                    }
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(appState.user.fullName)
+                                            .font(EcoTypography.largeTitle)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.72)
+                                        Text(appState.user.email)
+                                            .font(EcoTypography.subheadline)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.8)
+                                        PillBadge(
+                                            icon: "trophy.fill",
+                                            text: appState.user.level.rawValue,
+                                            foreground: EcoTheme.primary,
+                                            background: Color(hex: 0xDDF8EE)
+                                        )
+                                    }
+                                    Spacer()
+                                }
+
+                                VStack(alignment: .leading, spacing: 10) {
+                                    HStack(spacing: 12) {
+                                        ZStack {
+                                            Circle()
+                                                .fill(Color(hex: 0xE5F8EF))
+                                                .frame(width: 84, height: 84)
+                                            Circle()
+                                                .stroke(EcoTheme.primary, lineWidth: 3)
+                                                .frame(width: 84, height: 84)
+                                            Text(initials(from: appState.user.fullName))
+                                                .font(EcoTypography.title1)
+                                                .foregroundStyle(EcoTheme.primary)
+                                        }
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            Text(appState.user.fullName)
+                                                .font(EcoTypography.largeTitle)
+                                                .lineLimit(2)
+                                                .minimumScaleFactor(0.72)
+                                            Text(appState.user.email)
+                                                .font(EcoTypography.subheadline)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                                .minimumScaleFactor(0.82)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    PillBadge(
+                                        icon: "trophy.fill",
+                                        text: appState.user.level.rawValue,
+                                        foreground: EcoTheme.primary,
+                                        background: Color(hex: 0xDDF8EE)
+                                    )
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Прогресс уровня")
+                                        .font(EcoTypography.headline)
+                                    Spacer()
+                                    Text("\(Int(nextLevelProgress * 100))%")
+                                        .font(EcoTypography.headline)
+                                }
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        Capsule().fill(Color.black.opacity(0.08))
+                                        Capsule()
+                                            .fill(EcoTheme.primary)
+                                            .frame(width: geo.size.width * max(0.05, nextLevelProgress))
+                                    }
+                                }
+                                .frame(height: 12)
+
+                                Text(pointsToNext > 0 ? "\(pointsToNext) очк. до следующего уровня" : "Максимальный уровень достигнут")
+                                    .font(EcoTypography.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .surfaceCard()
+
+                        HStack(spacing: 10) {
+                            ProfileMetricPill(title: "CO₂", value: String(format: "%.1f кг", appState.user.co2SavedTotal), icon: "wind")
+                            ProfileMetricPill(title: "Серия", value: "\(appState.user.streakDays) дн", icon: "flame.fill")
+                            ProfileMetricPill(title: "Очки", value: "\(appState.user.points)", icon: "star.fill")
+                        }
+
+                        HStack(spacing: 10) {
+                            ProfileMetricPill(title: "Топ-категория", value: bestCategoryTitle, icon: "chart.bar.fill")
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Ачивки")
+                                    .font(EcoTypography.title2)
+                                Spacer()
+                                if completedChallengeAchievements.count > 3 {
+                                    Button("Смотреть все") {
+                                        showAllChallengeAchievements = true
+                                    }
+                                    .font(EcoTypography.caption)
+                                    .foregroundStyle(EcoTheme.primary)
+                                    .buttonStyle(.plain)
+                                }
+                            }
+
+                            if profileAchievementPreview.isEmpty {
+                                Text("Заверши хотя бы один челлендж, и ачивка появится здесь.")
+                                    .font(EcoTypography.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 4)
+                            } else {
+                                HStack(spacing: 10) {
+                                    ForEach(profileAchievementPreview) { challenge in
+                                        ProfileAchievementMiniCard(challenge: challenge) {
+                                            selectedAchievement = challenge
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .surfaceCard()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Добавленные активити: \(appState.activities.count)")
+                                    .font(EcoTypography.title2)
+                                Spacer()
+                                Button("Смотреть все") {
+                                    showAllActivities = true
+                                }
+                                .font(EcoTypography.caption)
+                                .foregroundStyle(EcoTheme.primary)
+                                .buttonStyle(.plain)
+                            }
+                            ForEach(appState.activities.prefix(5)) { activity in
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(Color(hex: 0xEAF5FF))
+                                        .frame(width: 28, height: 28)
+                                        .overlay(
+                                            Image(systemName: icon(for: activity.category))
+                                                .font(.system(size: 12, weight: .bold))
+                                                .foregroundStyle(EcoTheme.primary)
+                                        )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(activity.title)
+                                            .font(EcoTypography.subheadline)
+                                        Text("\(activity.category.rawValue) • \(relativeTime(activity.createdAt))")
+                                            .font(EcoTypography.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text("+\(activity.points)")
+                                        .font(EcoTypography.caption)
+                                        .foregroundStyle(EcoTheme.primary)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .surfaceCard()
+
+                        Button("Выйти") {
+                            appState.signOut()
+                        }
+                        .buttonStyle(DuoPrimaryButtonStyle())
+                    }
+                    .padding()
+                    .padding(.bottom, 80)
+                }
+            }
+            .navigationBarHidden(true)
+            .sheet(isPresented: $showAllChallengeAchievements) {
+                AllChallengeAchievementsView(challenges: completedChallengeAchievements)
+            }
+            .sheet(isPresented: $showAllActivities) {
+                AllActivitiesView(activities: appState.activities)
+            }
+            .sheet(item: $selectedAchievement) { challenge in
+                AchievementDetailSheet(challenge: challenge)
+            }
+        }
+    }
+
+    private func initials(from name: String) -> String {
+        let words = name.split(separator: " ")
+        let chars = words.prefix(2).compactMap { $0.first }
+        return String(chars).uppercased()
+    }
+
+    private func icon(for category: ActivityCategory) -> String {
+        switch category {
+        case .transport: return "tram.fill"
+        case .plastic: return "bag.fill"
+        case .water: return "drop.fill"
+        case .waste: return "arrow.triangle.2.circlepath"
+        case .energy: return "bolt.fill"
+        case .custom: return "sparkles"
+        }
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+private struct ProfileMetricPill: View {
+    let title: String
+    let value: String
+    let icon: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: icon)
+                .font(EcoTypography.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(EcoTypography.title2)
+                .foregroundStyle(EcoTheme.ink)
+                        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+    }
+}
+
+private struct AllActivitiesView: View {
+    let activities: [EcoActivity]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if activities.isEmpty {
+                            Text("Пока нет добавленных активити.")
+                                .font(EcoTypography.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 24)
+                        } else {
+                            ForEach(activities) { activity in
+                                HStack(spacing: 10) {
+                                    Circle()
+                                        .fill(Color(hex: 0xEAF5FF))
+                                        .frame(width: 32, height: 32)
+                                        .overlay(
+                                            Image(systemName: icon(for: activity.category))
+                                                .font(.system(size: 13, weight: .bold))
+                                                .foregroundStyle(EcoTheme.primary)
+                                        )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(activity.title)
+                                            .font(EcoTypography.subheadline)
+                                            .foregroundStyle(EcoTheme.ink)
+                                        Text("\(activity.category.rawValue) • \(relativeTime(activity.createdAt))")
+                                            .font(EcoTypography.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text("+\(activity.points)")
+                                        .font(EcoTypography.caption)
+                                        .foregroundStyle(EcoTheme.primary)
+                                }
+                                .surfaceCard()
+                            }
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 20)
+                }
+            }
+            .navigationTitle("Все активити")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func icon(for category: ActivityCategory) -> String {
+        switch category {
+        case .transport: return "tram.fill"
+        case .plastic: return "bag.fill"
+        case .water: return "drop.fill"
+        case .waste: return "arrow.triangle.2.circlepath"
+        case .energy: return "bolt.fill"
+        case .custom: return "sparkles"
+        }
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+private struct ProfileAchievementMiniCard: View {
+    let challenge: Challenge
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                AchievementBadgeView(challenge: challenge, size: 64)
+                Text(challenge.title)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(EcoTheme.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(maxWidth: .infinity, minHeight: 126, maxHeight: 126, alignment: .top)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 6)
+            .background(Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(hex: challenge.badgeTintHex).opacity(0.16), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AchievementDetailSheet: View {
+    let challenge: Challenge
+    @Environment(\.dismiss) private var dismiss
+
+    private var progressText: String {
+        challenge.isClaimed ? "Ачивка уже получена и хранится в профиле." : "Прогресс: \(min(challenge.currentCount, challenge.targetCount))/\(challenge.targetCount)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                VStack(spacing: 18) {
+                    AchievementBadgeView(challenge: challenge, size: 116)
+
+                    VStack(spacing: 8) {
+                        Text(challenge.title)
+                            .font(EcoTypography.largeTitle)
+                            .foregroundStyle(EcoTheme.ink)
+                            .multilineTextAlignment(.center)
+
+                        Text(challenge.description)
+                            .font(EcoTypography.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                    }
+
+                    VStack(spacing: 10) {
+                        AchievementInfoRow(label: "Награда", value: "+\(challenge.rewardPoints) очк.", icon: "star.fill", tint: Color(hex: 0xD89A00))
+                        AchievementInfoRow(label: "Цель", value: "\(challenge.targetCount) действий", icon: "flag.fill", tint: EcoTheme.primary)
+                        AchievementInfoRow(label: "Статус", value: challenge.isClaimed ? "Получена" : (challenge.isCompleted ? "Готова к получению" : "В процессе"), icon: challenge.isClaimed ? "checkmark.seal.fill" : "bolt.fill", tint: challenge.isClaimed ? Color(hex: 0x0A8E79) : EcoTheme.sky)
+                    }
+                    .surfaceCard()
+
+                    Text(progressText)
+                        .font(EcoTypography.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Spacer()
+                }
+                .padding()
+                .padding(.bottom, 20)
+            }
+            .navigationTitle("Ачивка")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct AchievementInfoRow: View {
+    let label: String
+    let value: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(tint.opacity(0.14))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(tint)
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(EcoTypography.headline)
+                    .foregroundStyle(EcoTheme.ink)
+            }
+            Spacer()
+        }
+    }
+}
+
+private struct AllChallengeAchievementsView: View {
+    let challenges: [Challenge]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if challenges.isEmpty {
+                            Text("Пока нет завершенных челленджей.")
+                                .font(EcoTypography.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.top, 24)
+                        } else {
+                            ForEach(challenges) { challenge in
+                                HStack(spacing: 12) {
+                                    AchievementBadgeView(challenge: challenge, size: 50)
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(challenge.title)
+                                            .font(EcoTypography.headline)
+                                            .foregroundStyle(EcoTheme.ink)
+                                        Text("+\(challenge.rewardPoints) очк.")
+                                            .font(EcoTypography.caption)
+                                            .foregroundStyle(Color(hex: 0xD89A00))
+                                    }
+                                    Spacer()
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .foregroundStyle(Color(hex: 0x0A8E79))
+                                }
+                                .surfaceCard()
+                            }
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 20)
+                }
+            }
+            .navigationTitle("Все ачивки")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct ChallengesStatChip: View {
+    let title: String
+    let value: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(EcoTypography.headline)
+                    .foregroundStyle(EcoTheme.ink)
+                Text(title)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.black.opacity(0.05), lineWidth: 1)
+        )
+    }
+}
+
+private struct ChallengeAchievementCard: View {
+    let challenge: Challenge
+    let compact: Bool
+    let isClaiming: Bool
+    let onOpenHint: () -> Void
+    let onClaim: () -> Void
+
+    private var progress: Double {
+        guard challenge.targetCount > 0 else { return 0 }
+        return min(max(Double(challenge.currentCount) / Double(challenge.targetCount), 0), 1)
+    }
+
+    var body: some View {
+        let tint = Color(hex: challenge.badgeTintHex)
+
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: onOpenHint) {
+                HStack(alignment: .top, spacing: 12) {
+                    AchievementBadgeView(challenge: challenge, size: compact ? 68 : 74)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(challenge.title)
+                                .font(EcoTypography.title2)
+                                .foregroundStyle(EcoTheme.ink)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.8)
+                            Spacer()
+                            Text("\(min(challenge.currentCount, challenge.targetCount))/\(challenge.targetCount)")
+                                .font(EcoTypography.headline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.black.opacity(0.08))
+                                    .frame(height: 12)
+                                Capsule()
+                                    .fill(Color(hex: 0xF7C300))
+                                    .frame(width: geo.size.width * progress, height: 12)
+                            }
+                        }
+                        .frame(height: 12)
+
+                        Text("- \(challenge.description)")
+                            .font(EcoTypography.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+
+                        Label("Нажми, чтобы посмотреть подсказку", systemImage: "lightbulb.fill")
+                            .font(EcoTypography.caption)
+                            .foregroundStyle(tint)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            HStack {
+                Label("+\(challenge.rewardPoints) очк.", systemImage: "star.fill")
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(Color(hex: 0xD89A00))
+                Spacer()
+                if challenge.isCompleted {
+                    Button(action: onClaim) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "gift.fill")
+                            Text("Забрать ачивку")
+                        }
+                        .font(EcoTypography.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: 0xFFB703), Color(hex: 0xFB8500)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: Capsule()
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isClaiming)
+                    .opacity(isClaiming ? 0.55 : 1)
+                } else {
+                    Text("В процессе")
+                        .font(EcoTypography.caption)
+                        .foregroundStyle(EcoTheme.ink.opacity(0.7))
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(tint.opacity(0.22), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+    }
+}
+
+private struct ChallengeHintSheet: View {
+    let challenge: Challenge
+    @Environment(\.dismiss) private var dismiss
+
+    private var hintText: String {
+        let title = challenge.title.lowercased()
+        let description = challenge.description.lowercased()
+
+        if title.contains("пластик") || description.contains("пластик") {
+            return "Выбери любую активность в категории «Пластик». Например: многоразовая бутылка, эко-сумка вместо пакета или отказ от одноразового пластика."
+        }
+        if title.contains("транспорт") || description.contains("пешком") || description.contains("велосип") || description.contains("метро") {
+            return "Выбери любую активность в категории «Транспорт». Например: пешая прогулка, велосипед, метро или другой экологичный способ передвижения."
+        }
+        if title.contains("вод") || description.contains("вод") {
+            return "Выбери любую активность в категории «Вода». Например: короткий душ, закрывать кран во время чистки зубов или другая привычка на экономию воды."
+        }
+        if title.contains("энерг") || description.contains("энерг") {
+            return "Выбери любую активность в категории «Энергия». Например: выключать лишний свет, отключать зарядку из розетки или использовать энергосберегающую привычку."
+        }
+        if title.contains("сортиров") || title.contains("отход") || description.contains("переработ") {
+            return "Выбери любую активность по отходам и переработке. Например: сортировка бумаги, сдача пластика на переработку или отказ от лишнего мусора."
+        }
+        if title.contains("шопинг") || description.contains("упаков") || title.contains("покуп") {
+            return "Выбери любую активность из осознанных покупок. Например: товар без лишней упаковки, локальные продукты или многоразовые вещи."
+        }
+        if title.contains("комьюнити") || description.contains("пост") {
+            return "Для этого челленджа нужно делиться в ленте. Добавь пост в разделе новостей о своей экопривычке или результате."
+        }
+        if title.contains("эко-мастер") || description.contains("очков") {
+            return "Для этого челленджа просто продолжай выполнять любые активности. Очки суммируются, и когда дойдешь до нужного числа, челлендж откроется."
+        }
+        return "Открой подходящую категорию и выбери любую активность, которая соответствует описанию челленджа. Подойдут любые действия по теме этого задания."
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                VStack(spacing: 18) {
+                    AchievementBadgeView(challenge: challenge, size: 96)
+
+                    VStack(spacing: 8) {
+                        Text(challenge.title)
+                            .font(EcoTypography.title1)
+                            .foregroundStyle(EcoTheme.ink)
+                            .multilineTextAlignment(.center)
+
+                        Text(hintText)
+                            .font(EcoTypography.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(3)
+                    }
+
+                    HStack(spacing: 10) {
+                        CelebrationPill(text: "\(min(challenge.currentCount, challenge.targetCount))/\(challenge.targetCount)", icon: "flag.fill", tint: EcoTheme.primary)
+                        CelebrationPill(text: "+\(challenge.rewardPoints) очк.", icon: "star.fill", tint: Color(hex: 0xD89A00))
+                    }
+
+                    Button("Понятно") {
+                        dismiss()
+                    }
+                    .buttonStyle(DuoPrimaryButtonStyle())
+                }
+                .padding(24)
+                .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(Color.white.opacity(0.75), lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct ChallengeClaimCelebrationOverlay: View {
+    let challenge: Challenge
+    let onDismiss: () -> Void
+    @State private var badgeScale: CGFloat = 0.5
+    @State private var glowOpacity = 0.0
+    @State private var ringScale: CGFloat = 0.7
+    @State private var contentOffset: CGFloat = 24
+    @State private var sparkleRotation: Double = -16
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.black.opacity(0.12), Color(hex: challenge.badgeTintHex).opacity(0.22)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.38), lineWidth: 2)
+                        .frame(width: 188, height: 188)
+                        .scaleEffect(ringScale)
+                        .opacity(1.1 - glowOpacity * 0.35)
+
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [Color(hex: challenge.badgeBackgroundHex), Color.white.opacity(0.12)],
+                                center: .center,
+                                startRadius: 10,
+                                endRadius: 120
+                            )
+                        )
+                        .frame(width: 170, height: 170)
+                        .scaleEffect(1 + glowOpacity * 0.08)
+
+                    ForEach(0..<8, id: \.self) { index in
+                        Capsule()
+                            .fill(Color.white.opacity(0.85))
+                            .frame(width: 6, height: 22)
+                            .offset(y: -112)
+                            .rotationEffect(.degrees(Double(index) * 45 + sparkleRotation))
+                            .opacity(glowOpacity)
+                    }
+
+                    AchievementBadgeView(challenge: challenge, size: 108)
+                        .scaleEffect(badgeScale)
+                        .shadow(color: Color(hex: challenge.badgeTintHex).opacity(0.35), radius: 22, y: 10)
+                }
+
+                VStack(spacing: 8) {
+                    Text("Ты молодец!")
+                        .font(EcoTypography.largeTitle)
+                        .foregroundStyle(EcoTheme.ink)
+                    Text("Ачивка «\(challenge.title)» получена")
+                        .font(EcoTypography.title2)
+                        .foregroundStyle(EcoTheme.ink)
+                        .multilineTextAlignment(.center)
+                    Text("Теперь она хранится в профиле.")
+                        .font(EcoTypography.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .offset(y: contentOffset)
+                .opacity(glowOpacity)
+
+                HStack(spacing: 10) {
+                    CelebrationPill(text: "+\(challenge.rewardPoints) очк.", icon: "star.fill", tint: Color(hex: 0xD89A00))
+                    CelebrationPill(text: "Профиль обновлен", icon: "person.crop.circle.fill", tint: EcoTheme.primary)
+                }
+                .offset(y: contentOffset)
+                .opacity(glowOpacity)
+            }
+            .padding(28)
+            .background(Color.white.opacity(0.96), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(Color.white.opacity(0.7), lineWidth: 1)
+            )
+            .padding(.horizontal, 28)
+            .onAppear {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.64)) {
+                    badgeScale = 1.0
+                    glowOpacity = 1.0
+                    ringScale = 1.14
+                    contentOffset = 0
+                    sparkleRotation = 12
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onDismiss()
+        }
+    }
+}
+
+private struct CelebrationPill: View {
+    let text: String
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            Text(text)
+        }
+        .font(EcoTypography.caption)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(tint.opacity(0.12), in: Capsule())
+    }
+}
+
+private struct AchievementBadgeView: View {
+    let challenge: Challenge
+    let size: CGFloat
+
+    var body: some View {
+        let tint = Color(hex: challenge.badgeTintHex)
+        let background = Color(hex: challenge.badgeBackgroundHex)
+        let innerSize = size * 0.56
+
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [background, tint.opacity(0.22)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                .stroke(tint.opacity(0.32), lineWidth: 1.2)
+
+            Circle()
+                .stroke(Color.white.opacity(0.8), style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
+                .padding(size * 0.15)
+
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [Color.white.opacity(0.95), tint.opacity(0.35)],
+                        center: .topLeading,
+                        startRadius: 2,
+                        endRadius: innerSize * 0.8
+                    )
+                )
+                .frame(width: innerSize, height: innerSize)
+                .overlay(Circle().stroke(tint.opacity(0.3), lineWidth: 1))
+
+            Image(systemName: challenge.badgeSymbol)
+                .font(.system(size: size * 0.34, weight: .black))
+                .foregroundStyle(tint)
+                .shadow(color: tint.opacity(0.18), radius: 2, y: 1)
+
+            Circle()
+                .fill(Color.white.opacity(0.55))
+                .frame(width: size * 0.13, height: size * 0.13)
+                .offset(x: size * 0.24, y: -size * 0.24)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: tint.opacity(0.24), radius: 8, y: 4)
+    }
+}
+
+struct AIChatView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @FocusState private var inputFocused: Bool
+
+    private var canSend: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                VStack(spacing: 12) {
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(Color(hex: 0xD9F2E6))
+                            .frame(width: 34, height: 34)
+                            .overlay(
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(EcoTheme.primary)
+                            )
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Эко-помощник")
+                                .font(EcoTypography.title2)
+                            Text("Онлайн")
+                                .font(EcoTypography.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Закрыть") {
+                            dismiss()
+                        }
+                        .font(EcoTypography.buttonSecondary)
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 2)
+
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 10) {
+                                ForEach(appState.chatMessages) { message in
+                                    AIChatMessageRow(message: message)
+                                        .id(message.id)
+                                }
+                            }
+                            .padding(12)
+                        }
+                        .onAppear {
+                            if let last = appState.chatMessages.last {
+                                proxy.scrollTo(last.id, anchor: .bottom)
+                            }
+                        }
+                        .onChange(of: appState.chatMessages.count) { _, _ in
+                            if let last = appState.chatMessages.last {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    proxy.scrollTo(last.id, anchor: .bottom)
+                                }
+                            }
+                        }
+                    }
+                    .surfaceCard()
+                    .frame(maxHeight: .infinity)
+
+                    HStack(spacing: 8) {
+                        TextField("Спросить ИИ про эко...", text: $text, axis: .vertical)
+                            .focused($inputFocused)
+                            .font(EcoTypography.body)
+                            .lineLimit(1...4)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.white.opacity(0.95))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
+                            )
+
+                        Button {
+                            Task {
+                                let currentText = text
+                                let success = await appState.sendMessageToAI(currentText)
+                                guard success else { return }
+                                text = ""
+                                inputFocused = true
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up")
+                                .font(.system(size: 16, weight: .black))
+                                .foregroundStyle(.white)
+                                .frame(width: 42, height: 42)
+                                .background(
+                                    LinearGradient(
+                                        colors: [EcoTheme.primary, EcoTheme.secondary],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    in: Circle()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!canSend || appState.isSendingMessage)
+                        .opacity(canSend && !appState.isSendingMessage ? 1 : 0.5)
+                    }
+                    .surfaceCard()
+
+                    if appState.isSendingMessage {
+                        ProgressView()
+                            .tint(EcoTheme.primary)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+            }
+            .navigationBarHidden(true)
+        }
+    }
+}
+
+private struct AIChatMessageRow: View {
+    let message: ChatMessage
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            if message.isUser { Spacer(minLength: 44) }
+
+            if !message.isUser {
+                Circle()
+                    .fill(Color(hex: 0xD9F2E6))
+                    .frame(width: 28, height: 28)
+                    .overlay(
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(EcoTheme.primary)
+                    )
+            }
+
+            VStack(alignment: message.isUser ? .trailing : .leading, spacing: 4) {
+                Text(message.text)
+                    .font(EcoTypography.subheadline)
+                    .foregroundStyle(message.isUser ? Color.white : EcoTheme.ink)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        message.isUser
+                            ? LinearGradient(colors: [EcoTheme.primary, EcoTheme.secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            : LinearGradient(colors: [Color.white, Color.white], startPoint: .top, endPoint: .bottom),
+                        in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(message.isUser ? Color.clear : Color.black.opacity(0.05), lineWidth: 1)
+                    )
+
+                Text(timeString(from: message.createdAt))
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if message.isUser {
+                Circle()
+                    .fill(Color.black)
+                    .frame(width: 28, height: 28)
+                    .overlay(
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                    )
+            }
+
+            if !message.isUser { Spacer(minLength: 44) }
+        }
+    }
+
+    private func timeString(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
+private struct PillBadge: View {
+    let icon: String
+    let text: String
+    var foreground: Color = EcoTheme.ink
+    var background: Color = EcoTheme.sun.opacity(0.45)
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+            Text(text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+            .font(EcoTypography.footnote)
+            .foregroundStyle(foreground)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(background, in: Capsule())
+            .overlay(
+                Capsule().stroke(foreground.opacity(0.16), lineWidth: 1)
+            )
+    }
+}
+
+private struct AddCategoryTile: View {
+    let title: String
+    let icon: String
+    let tint: Color
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.white.opacity(isSelected ? 0.36 : 0.25))
+                        .frame(width: 56, height: 56)
+                    Image(systemName: icon)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(isSelected ? Color.white : tint)
+                }
+                Text(title)
+                    .font(EcoTypography.callout)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.22) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(isSelected ? 0.45 : 0.14), lineWidth: 1)
+            )
+            .scaleEffect(isSelected ? 1.02 : 1)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct AddSubactivityTile: View {
+    let title: String
+    let icon: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.22))
+                    .frame(width: 62, height: 62)
+                    .overlay(
+                        Image(systemName: icon)
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.white)
+                    )
+                Text(title)
+                    .font(EcoTypography.callout)
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PendingActivity {
+    let category: ActivityCategory
+    let title: String
+    let co2: Double
+    let points: Int
+}
+
+private struct PendingActivitySubmission {
+    let category: ActivityCategory
+    let title: String
+    let co2: Double
+    let points: Int
+    let note: String?
+    let media: [PostMediaAttachment]
+}
+
+private struct TrendDataPoint {
+    let day: String
+    let points: Int
+}
+
+private struct ImpactCardModel {
+    let value: String
+    let title: String
+    let icon: String
+    let tint: Color
+    let background: Color
+}
+
+private struct ImpactCard: View {
+    let item: ImpactCardModel
+    @State private var tapPulse = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.9))
+                    .frame(width: 52, height: 52)
+                    .shadow(color: .black.opacity(0.08), radius: 5, y: 4)
+                Image(systemName: item.icon)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(item.tint)
+                    .scaleEffect(tapPulse ? 1.18 : 1)
+                    .animation(.spring(response: 0.24, dampingFraction: 0.55), value: tapPulse)
+            }
+            Text(item.value)
+                .font(Font.system(size: 26, weight: .heavy, design: .rounded))
+                .foregroundStyle(EcoTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Text(item.title)
+                .font(EcoTypography.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 12)
+        .background(item.background, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(item.tint.opacity(0.2), lineWidth: 2)
+        )
+        .scaleEffect(tapPulse ? 0.97 : 1)
+        .onTapGesture {
+            tapPulse = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                tapPulse = false
+            }
+        }
+    }
+}
+
+private struct TrendChart: View {
+    let points: [Int]
+    @Binding var selectedIndex: Int
+    let progress: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            let frame = CGRect(origin: .zero, size: geo.size)
+            ZStack(alignment: .bottomLeading) {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white.opacity(0.35))
+
+                TrendAreaShape(values: points)
+                    .trim(from: 0, to: progress)
+                    .fill(
+                        LinearGradient(
+                            colors: [EcoTheme.primary.opacity(0.25), EcoTheme.primary.opacity(0.04)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                TrendLineShape(values: points)
+                    .trim(from: 0, to: progress)
+                    .stroke(EcoTheme.primary, style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+
+                let xStep = frame.width / CGFloat(max(points.count - 1, 1))
+                let maxValue = max(points.max() ?? 1, 1)
+                let minValue = min(points.min() ?? 0, maxValue)
+                let availableHeight = frame.height - 30
+                let normalized = CGFloat(points[selectedIndex] - minValue) / CGFloat(max(maxValue - minValue, 1))
+                let y = (1 - normalized) * availableHeight + 8
+                let x = CGFloat(selectedIndex) * xStep
+
+                ForEach(Array(points.enumerated()), id: \.offset) { index, value in
+                    let normalizedPoint = CGFloat(value - minValue) / CGFloat(max(maxValue - minValue, 1))
+                    let pointY = (1 - normalizedPoint) * availableHeight + 8
+                    let pointX = CGFloat(index) * xStep
+                    Circle()
+                        .fill(index == selectedIndex ? EcoTheme.primary : Color.white.opacity(0.9))
+                        .frame(width: index == selectedIndex ? 16 : 12, height: index == selectedIndex ? 16 : 12)
+                        .overlay(
+                            Circle().stroke(EcoTheme.primary, lineWidth: 2)
+                        )
+                        .shadow(color: EcoTheme.primary.opacity(index == selectedIndex ? 0.3 : 0.12), radius: 4, y: 2)
+                        .position(x: pointX, y: pointY)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                                selectedIndex = index
+                            }
+                        }
+                }
+
+                Path { path in
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: frame.height))
+                }
+                .stroke(style: StrokeStyle(lineWidth: 2, dash: [8, 8]))
+                .foregroundStyle(EcoTheme.primary.opacity(0.7))
+
+                Circle()
+                    .fill(EcoTheme.primary)
+                    .frame(width: 18, height: 18)
+                    .overlay(Circle().stroke(.white, lineWidth: 4))
+                    .position(x: x, y: y)
+                    .scaleEffect(1.08)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.6), value: selectedIndex)
+            }
+        }
+    }
+}
+
+private struct TrendLineShape: Shape {
+    let values: [Int]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard values.count > 1 else { return path }
+
+        let maxValue = max(values.max() ?? 1, 1)
+        let minValue = min(values.min() ?? 0, maxValue)
+        let range = CGFloat(max(maxValue - minValue, 1))
+        let xStep = rect.width / CGFloat(values.count - 1)
+
+        let points = values.enumerated().map { index, value in
+            let x = CGFloat(index) * xStep
+            let normalized = CGFloat(value - minValue) / range
+            let y = (1 - normalized) * (rect.height - 30) + 8
+            return CGPoint(x: x, y: y)
+        }
+
+        path.move(to: points[0])
+        for idx in 1..<points.count {
+            let prev = points[idx - 1]
+            let point = points[idx]
+            let mid = CGPoint(x: (prev.x + point.x) / 2, y: (prev.y + point.y) / 2)
+            path.addQuadCurve(to: mid, control: CGPoint(x: prev.x + xStep * 0.35, y: prev.y))
+            path.addQuadCurve(to: point, control: CGPoint(x: mid.x + xStep * 0.15, y: point.y))
+        }
+        return path
+    }
+}
+
+private struct TrendAreaShape: Shape {
+    let values: [Int]
+
+    func path(in rect: CGRect) -> Path {
+        var path = TrendLineShape(values: values).path(in: rect)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct DuoInputField: View {
+    let title: String
+    @Binding var text: String
+
+    var body: some View {
+        TextField(title, text: $text)
+            .font(EcoTypography.body)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.95))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(EcoTheme.primary.opacity(0.18), lineWidth: 1)
+            )
+    }
+}
+
+private struct DuoInputSecureField: View {
+    let title: String
+    @Binding var text: String
+
+    var body: some View {
+        SecureField(title, text: $text)
+            .font(EcoTypography.body)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.white.opacity(0.95))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(EcoTheme.primary.opacity(0.18), lineWidth: 1)
+            )
+    }
+}
+
+private struct SurfaceCardModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(16)
+            .background(Color.white.opacity(0.84), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.white.opacity(0.58), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.06), radius: 10, y: 5)
+    }
+}
+
+private extension View {
+    func surfaceCard() -> some View {
+        modifier(SurfaceCardModifier())
+    }
+}

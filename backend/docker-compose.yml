@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ecoiz-postgres
+    environment:
+      POSTGRES_DB: ecoiz
+      POSTGRES_USER: ecoiz
+      POSTGRES_PASSWORD: ecoiz
+    ports:
+      - "5432:5432"
+    volumes:
+      - ecoiz_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  ecoiz_postgres_data:
