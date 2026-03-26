@@ -5,11 +5,22 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 
 import { useAuth } from "@/components/auth-provider";
+import { isMockMode } from "@/lib/config";
 import { loginSchema, type LoginFormValues } from "@/lib/validation";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
+  const mockMode = isMockMode();
+  const defaultCredentials = mockMode
+    ? {
+        email: "akmaral@ecoiz.app",
+        password: "admin123",
+      }
+    : {
+        email: "admin@ecoiz.app",
+        password: "admin123",
+      };
   const {
     register,
     handleSubmit,
@@ -18,10 +29,7 @@ export default function LoginPage() {
     formState: { errors, isSubmitting, isDirty },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: "akmaral@ecoiz.app",
-      password: "admin123",
-    },
+    defaultValues: defaultCredentials,
   });
 
   async function onSubmit(values: LoginFormValues) {
@@ -41,8 +49,9 @@ export default function LoginPage() {
         <p className="auth-kicker">ECOIZ admin access</p>
         <h1 className="auth-title">Sign in to the moderation workspace</h1>
         <p className="muted">
-          Mock credentials are prefilled. Replace this flow with backend auth
-          when the real admin API is ready.
+          {mockMode
+            ? "Mock credentials are prefilled for UI development."
+            : "Live backend mode is enabled. Use the seeded admin account to sign in."}
         </p>
 
         <form className="form-shell" onSubmit={handleSubmit(onSubmit)}>
@@ -67,7 +76,11 @@ export default function LoginPage() {
           ) : null}
 
           <p className="form-status muted">
-            {isDirty ? "You have unsaved login changes." : "Mock credentials are ready."}
+            {isDirty
+              ? "You have unsaved login changes."
+              : mockMode
+                ? "Mock credentials are ready."
+                : "Live admin credentials are ready."}
           </p>
 
           <div className="button-row">
@@ -81,12 +94,7 @@ export default function LoginPage() {
             <button
               type="button"
               className="ghost-button"
-              onClick={() =>
-                reset({
-                  email: "akmaral@ecoiz.app",
-                  password: "admin123",
-                })
-              }
+              onClick={() => reset(defaultCredentials)}
             >
               Reset
             </button>
@@ -94,9 +102,15 @@ export default function LoginPage() {
         </form>
 
         <div className="auth-hint">
-          <strong>Mock accounts</strong>
-          <p className="muted">`akmaral@ecoiz.app / admin123`</p>
-          <p className="muted">`nurdana@ecoiz.app / moderator123`</p>
+          <strong>{mockMode ? "Mock accounts" : "Live backend account"}</strong>
+          {mockMode ? (
+            <>
+              <p className="muted">`akmaral@ecoiz.app / admin123`</p>
+              <p className="muted">`nurdana@ecoiz.app / moderator123`</p>
+            </>
+          ) : (
+            <p className="muted">`admin@ecoiz.app / admin123`</p>
+          )}
         </div>
       </div>
     </div>

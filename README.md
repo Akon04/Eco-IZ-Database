@@ -1,21 +1,13 @@
 # ECOIZ
 
-ECOIZ is a team project with a user-facing app, admin web, backend, database setup, and AI workstream.
+ECOIZ is a team project with a user-facing app, admin web, backend, and database setup.
 
 ## Project Structure
 
 - `admin-web/` - admin panel frontend built with Next.js
-- `database/` - Prisma schema, seed data, and PostgreSQL Docker setup
-- `backend/` - planned main application backend
-- `app-web/` - planned user-facing frontend
-- `ai/` - planned AI module and integrations
-
-At the moment, the repository already contains:
-
-- `admin-web/`
-- `database/`
-
-The rest of the modules can be added later as separate folders in the same repository.
+- `backend/` - main FastAPI backend with SQLAlchemy and Alembic
+- `frontend/` - user-facing iOS/frontend application
+- `database/` - legacy Prisma schema and seed data kept for reference
 
 ## Team Roles
 
@@ -30,24 +22,23 @@ The rest of the modules can be added later as separate folders in the same repos
 - React Query
 - React Hook Form
 - Zod
-- Prisma
+- FastAPI
+- SQLAlchemy
+- Alembic
 - PostgreSQL
 - Docker
 
-## Run Database
+## Run Backend
 
 ```bash
-cd database
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+cp .env.example .env
 docker compose up -d
-npm install
-npx prisma migrate dev
-npm run seed
-```
-
-Optional Prisma Studio:
-
-```bash
-npx prisma studio
+pip install -e .
+alembic upgrade head
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ## Run Admin Web
@@ -62,13 +53,13 @@ Open:
 
 - `http://localhost:3000`
 
-Mock admin accounts:
+Live admin account:
 
-- `akmaral@ecoiz.app / admin123`
-- `nurdana@ecoiz.app / moderator123`
+- `admin@ecoiz.app / admin123`
 
 ## Notes
 
 - `admin-web` currently supports both `mock` and `live` API modes.
-- `database` contains the source of truth for Prisma schema and seed data.
-- Some frontend mock data is intentionally simplified during UI development, but key datasets should stay aligned with the database when possible.
+- Current working runtime stack is `admin-web -> backend -> PostgreSQL`.
+- `database/` is not the active runtime database layer right now because the backend uses SQLAlchemy + Alembic.
+- If you run the real admin flow, start `backend` first, then `admin-web`.

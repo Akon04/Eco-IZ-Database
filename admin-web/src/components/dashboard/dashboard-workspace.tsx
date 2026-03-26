@@ -6,6 +6,7 @@ import { MetricCards } from "@/components/metric-cards";
 import { StatePanel } from "@/components/state-panel";
 import { getAchievementMetrics, listAchievements } from "@/lib/api/achievements";
 import { getCategoryMetrics } from "@/lib/api/categories";
+import { isMockMode } from "@/lib/config";
 import { getHabitMetrics } from "@/lib/api/habits";
 import { getPostMetrics, listPosts } from "@/lib/api/posts";
 import { queryKeys } from "@/lib/query-keys";
@@ -92,18 +93,21 @@ export function DashboardWorkspace({
     queryKey: queryKeys.posts.list("dashboard"),
     queryFn: () => listPosts(),
     initialData: initialPosts,
+    placeholderData: (previousData) => previousData,
   });
 
   const usersQuery = useQuery({
     queryKey: queryKeys.users.list("dashboard"),
     queryFn: () => listAdminUsers(),
     initialData: initialUsers,
+    placeholderData: (previousData) => previousData,
   });
 
   const achievementsQuery = useQuery({
     queryKey: queryKeys.achievements.list("dashboard"),
     queryFn: () => listAchievements(),
     initialData: initialAchievements,
+    placeholderData: (previousData) => previousData,
   });
 
   const hasError =
@@ -134,6 +138,34 @@ export function DashboardWorkspace({
   const posts = postsQuery.data;
   const users = usersQuery.data;
   const achievements = achievementsQuery.data;
+
+  const isBootstrappingLiveDashboard =
+    !isMockMode() &&
+    (userMetricsQuery.isFetching ||
+      habitMetricsQuery.isFetching ||
+      achievementMetricsQuery.isFetching ||
+      postMetricsQuery.isFetching ||
+      categoryMetricsQuery.isFetching ||
+      postsQuery.isFetching ||
+      usersQuery.isFetching ||
+      achievementsQuery.isFetching) &&
+    userMetrics.totalUsers === 0 &&
+    habitMetrics.totalHabits === 0 &&
+    achievementMetrics.totalAchievements === 0 &&
+    postMetrics.totalPosts === 0 &&
+    categoryMetrics.totalCategories === 0 &&
+    posts.length === 0 &&
+    users.length === 0 &&
+    achievements.length === 0;
+
+  if (isBootstrappingLiveDashboard) {
+    return (
+      <StatePanel
+        title="Loading dashboard"
+        description="Fetching live admin metrics, catalog data, and moderation state."
+      />
+    );
+  }
 
   const topMetrics = [
     {

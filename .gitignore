@@ -2,3 +2,7 @@
 node_modules/
 backend/node_modules/
 backend/.env
+admin-web/.env.local
+backend/.venv/
+backend/**/__pycache__/
+backend/*.egg-info/

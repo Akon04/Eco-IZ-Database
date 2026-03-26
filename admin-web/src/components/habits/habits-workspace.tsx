@@ -38,6 +38,7 @@ export function HabitsWorkspace({
     queryKey: queryKeys.habits.list(filtersKey),
     queryFn: () => listHabits(queryFilters),
     initialData: initialHabits,
+    placeholderData: (previousData) => previousData,
   });
 
   const metricsQuery = useQuery({
@@ -46,11 +47,20 @@ export function HabitsWorkspace({
     initialData: metrics,
   });
 
+  const allHabitsQuery = useQuery({
+    queryKey: queryKeys.habits.list("all-options"),
+    queryFn: () => listHabits(),
+    initialData: initialHabits,
+    placeholderData: (previousData) => previousData,
+  });
+
   const filteredHabits = habitsQuery.data;
 
   const categoryOptions = useMemo(() => {
-    return Array.from(new Set(filteredHabits.map((habit) => habit.category))).sort();
-  }, [filteredHabits]);
+    return Array.from(
+      new Set(allHabitsQuery.data.map((habit) => habit.category)),
+    ).sort();
+  }, [allHabitsQuery.data]);
 
   const selectedHabit =
     filteredHabits.find((habit: Habit) => habit.id === selectedHabitId) ??
@@ -74,10 +84,10 @@ export function HabitsWorkspace({
             habit={selectedHabit}
             categoryOptions={categoryOptions}
           />
-        ) : habitsQuery.isLoading ? (
+        ) : habitsQuery.isLoading || habitsQuery.isFetching ? (
           <StatePanel
             title="Loading habits"
-            description="Refreshing the current habit catalog and eco values."
+            description="Refreshing the current habit catalog and applying your filters."
           />
         ) : habitsQuery.isError ? (
           <StatePanel

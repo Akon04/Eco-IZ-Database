@@ -37,6 +37,7 @@ export function UsersWorkspace({
     queryKey: queryKeys.users.list(filtersKey),
     queryFn: () => listAdminUsers(queryFilters),
     initialData: initialUsers,
+    placeholderData: (previousData) => previousData,
   });
 
   const metricsQuery = useQuery({
@@ -65,10 +66,10 @@ export function UsersWorkspace({
         />
         {selectedUser ? (
           <UserDetailPanel user={selectedUser} />
-        ) : usersQuery.isLoading ? (
+        ) : usersQuery.isLoading || usersQuery.isFetching ? (
           <StatePanel
             title="Loading users"
-            description="Refreshing the current user directory and metrics."
+            description="Refreshing the current user directory and applying your filters."
           />
         ) : usersQuery.isError ? (
           <StatePanel

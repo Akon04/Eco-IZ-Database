@@ -34,6 +34,7 @@ export function PostsWorkspace({ initialPosts, metrics }: PostsWorkspaceProps) {
     queryKey: queryKeys.posts.list(filtersKey),
     queryFn: () => listPosts(queryFilters),
     initialData: initialPosts,
+    placeholderData: (previousData) => previousData,
   });
 
   const metricsQuery = useQuery({
@@ -62,10 +63,10 @@ export function PostsWorkspace({ initialPosts, metrics }: PostsWorkspaceProps) {
         />
         {selectedPost ? (
           <PostDetailPanel post={selectedPost} />
-        ) : postsQuery.isLoading ? (
+        ) : postsQuery.isLoading || postsQuery.isFetching ? (
           <StatePanel
             title="Loading posts"
-            description="Refreshing the moderation queue and report counts."
+            description="Refreshing the moderation queue and applying your filters."
           />
         ) : postsQuery.isError ? (
           <StatePanel

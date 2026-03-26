@@ -35,6 +35,7 @@ export function CategoriesWorkspace({
     queryKey: queryKeys.categories.list(filtersKey),
     queryFn: () => listCategories(queryFilters),
     initialData: initialCategories,
+    placeholderData: (previousData) => previousData,
   });
 
   const metricsQuery = useQuery({
@@ -63,10 +64,10 @@ export function CategoriesWorkspace({
         />
         {selectedCategory ? (
           <CategoryDetailPanel category={selectedCategory} />
-        ) : categoriesQuery.isLoading ? (
+        ) : categoriesQuery.isLoading || categoriesQuery.isFetching ? (
           <StatePanel
             title="Loading categories"
-            description="Refreshing the current eco category catalog."
+            description="Refreshing the current eco category catalog and applying your search."
           />
         ) : categoriesQuery.isError ? (
           <StatePanel

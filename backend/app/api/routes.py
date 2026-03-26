@@ -264,15 +264,55 @@ def add_activity(
     current_user.co2_saved_total += payload.co2Saved
     current_user.streak_days = max(1, current_user.streak_days + 1)
 
+    water_progress_by_title = {
+        "Короткий душ": 25,
+        "Закрыл кран вовремя": 8,
+        "Полная загрузка стирки": 40,
+        "Устранил утечку": 60,
+        "Установил аэратор": 35,
+    }
+    energy_progress_by_title = {
+        "Выключил свет": 2,
+        "Отключил приборы из сети": 3,
+        "Использую LED-лампы": 5,
+        "Использую дневной свет": 3,
+    }
+    recycled_progress_by_title = {
+        "Без пакета": 1,
+        "Многоразовая сумка": 1,
+        "Многоразовая бутылка": 1,
+        "Сдал пластик": 3,
+        "Сортировка": 2,
+        "Сдал вторсырье": 3,
+        "Компост": 2,
+    }
+
     for item in current_user.user_challenges:
         before = item.is_completed
         title = item.challenge.title
-        if title == "7 эко-действий за неделю":
+        activity_title = payload.title.strip()
+        if title == "Эко-новичок" and activity_title == "Многоразовая бутылка":
             item.current_count += 1
-        elif title == "3 дня без пластика" and payload.category == "Пластик":
+        elif title == "Неделя силы" and activity_title == "Пешая прогулка":
             item.current_count += 1
-        elif title == "Эко-транспорт" and payload.category == "Транспорт":
+        elif title == "Экономист" and payload.category == "Энергия":
             item.current_count += 1
+        elif title == "Мастер сортировки" and activity_title == "Сортировка":
+            item.current_count += 1
+        elif title == "Зеленый наставник" and activity_title == "Короткий душ":
+            item.current_count += 1
+        elif title == "Стабильный шаг":
+            item.current_count = max(item.current_count, current_user.streak_days)
+        elif title == "Зеленая серия":
+            item.current_count = max(item.current_count, current_user.streak_days)
+        elif title == "Бережливый пользователь":
+            item.current_count += water_progress_by_title.get(activity_title, 0)
+        elif title == "Энерго-герой":
+            item.current_count += energy_progress_by_title.get(activity_title, 0)
+        elif title == "Спасатель климата":
+            item.current_count += int(payload.co2Saved)
+        elif title == "Переработчик":
+            item.current_count += recycled_progress_by_title.get(activity_title, 0)
         if not before and item.current_count >= item.challenge.target_count:
             item.is_completed = True
             item.completed_at = now
@@ -505,7 +545,7 @@ def admin_habits(
         pattern = f"%{search.strip()}%"
         stmt = stmt.where((Habit.title.ilike(pattern)) | (EcoCategory.name.ilike(pattern)))
     if category:
-        stmt = stmt.where(EcoCategory.name == category)
+        stmt = stmt.where(EcoCategory.name.ilike(category.strip()))
     habits = db.scalars(stmt).all()
     return [serialize_habit(item) for item in habits]
 

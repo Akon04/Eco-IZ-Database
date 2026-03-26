@@ -20,10 +20,27 @@ export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
+  const authHeaders: HeadersInit = {};
+
+  if (typeof window !== "undefined") {
+    const raw = window.localStorage.getItem("ecoiz_admin_session");
+    if (raw) {
+      try {
+        const session = JSON.parse(raw) as { token?: string };
+        if (session.token) {
+          authHeaders.Authorization = `Bearer ${session.token}`;
+        }
+      } catch {
+        window.localStorage.removeItem("ecoiz_admin_session");
+      }
+    }
+  }
+
   const response = await fetch(`${appConfig.apiBaseUrl}${path}`, {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
+      ...authHeaders,
       ...options.headers,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
@@ -34,9 +51,14 @@ export async function apiRequest<T>(
     let message = "Request failed";
 
     try {
-      const errorBody = (await response.json()) as { message?: string };
+      const errorBody = (await response.json()) as {
+        message?: string;
+        error?: string;
+      };
       if (errorBody.message) {
         message = errorBody.message;
+      } else if (errorBody.error) {
+        message = errorBody.error;
       }
     } catch {
       message = response.statusText || message;

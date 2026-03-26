@@ -42,6 +42,7 @@ export function AchievementsWorkspace({
     queryKey: queryKeys.achievements.list(filtersKey),
     queryFn: () => listAchievements(queryFilters),
     initialData: initialAchievements,
+    placeholderData: (previousData) => previousData,
   });
 
   const metricsQuery = useQuery({
@@ -72,10 +73,10 @@ export function AchievementsWorkspace({
         />
         {selectedAchievement ? (
           <AchievementDetailPanel achievement={selectedAchievement} />
-        ) : achievementsQuery.isLoading ? (
+        ) : achievementsQuery.isLoading || achievementsQuery.isFetching ? (
           <StatePanel
             title="Loading achievements"
-            description="Refreshing milestone configuration and reward data."
+            description="Refreshing milestone configuration and applying your search."
           />
         ) : achievementsQuery.isError ? (
           <StatePanel

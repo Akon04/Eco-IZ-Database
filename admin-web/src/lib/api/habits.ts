@@ -16,7 +16,7 @@ export async function listHabits(
     const params = new URLSearchParams();
     if (filters.search?.trim()) params.set("search", filters.search.trim());
     if (filters.category && filters.category !== "ALL") {
-      params.set("category", filters.category);
+      params.set("category", filters.category.trim());
     }
 
     return apiRequest<Habit[]>(
