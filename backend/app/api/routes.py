@@ -90,7 +90,7 @@ def parse_uuid(value: str) -> uuid.UUID:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found.") from exc
 
 
-def estimate_custom_activity_impact(title: str, note: str, media_count: int) -> tuple[float, int]:
+def estimate_custom_activity_impact(title: str, note: str) -> tuple[float, int]:
     combined = f"{title} {note}".lower()
     points = 6
     co2_saved = 0.18
@@ -113,9 +113,6 @@ def estimate_custom_activity_impact(title: str, note: str, media_count: int) -> 
     if len(note.strip()) > 80:
         points += 2
         co2_saved += 0.08
-
-    points += min(media_count, 2)
-    co2_saved += min(media_count, 2) * 0.04
 
     return round(min(co2_saved, 1.4), 2), min(points, 18)
 
@@ -358,7 +355,7 @@ def add_activity(
         )
 
     if payload.category == "Своя активность":
-        computed_co2_saved, computed_points = estimate_custom_activity_impact(title, note, len(payload.media))
+        computed_co2_saved, computed_points = estimate_custom_activity_impact(title, note)
     else:
         computed_points = max(0, min(payload.points, 60))
         computed_co2_saved = max(0.0, min(payload.co2Saved, 5.0))

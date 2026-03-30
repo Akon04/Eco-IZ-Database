@@ -69,6 +69,10 @@ class BackendAPITests(unittest.TestCase):
         self.assertIn("communityImpact", bootstrap_body)
         self.assertGreaterEqual(bootstrap_body["communityImpact"]["totalUsers"], 2)
         self.assertGreaterEqual(bootstrap_body["communityImpact"]["totalActivities"], 2)
+        self.assertGreaterEqual(
+            bootstrap_body["communityImpact"]["totalPoints"],
+            bootstrap_body["user"]["points"],
+        )
 
         chat = self.client.post(
             "/chat/messages",

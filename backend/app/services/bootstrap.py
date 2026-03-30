@@ -140,7 +140,7 @@ def serialize_community_impact(db: Session) -> CommunityImpactResponse:
         totalPosts=len(posts),
         totalChallengesCompleted=completed_challenge_count,
         totalCo2Saved=round(sum(item.co2_saved for item in activities), 2),
-        totalPoints=sum(item.points for item in activities),
+        totalPoints=sum(item.points for item in users),
     )
 
 
