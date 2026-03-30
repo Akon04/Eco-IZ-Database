@@ -2,7 +2,7 @@ import Foundation
 
 enum APIError: LocalizedError {
     case invalidURL
-    case invalidResponse
+    case invalidResponse(String? = nil)
     case server(String)
     case unauthorized
 
@@ -10,8 +10,8 @@ enum APIError: LocalizedError {
         switch self {
         case .invalidURL:
             return "Некорректный адрес backend."
-        case .invalidResponse:
-            return "Backend вернул некорректный ответ."
+        case .invalidResponse(let message):
+            return message ?? "Backend вернул некорректный ответ."
         case .server(let message):
             return message
         case .unauthorized:
@@ -21,12 +21,38 @@ enum APIError: LocalizedError {
 }
 
 private struct APIErrorResponse: Decodable {
-    let error: String
+    let error: String?
+    let detail: String?
+    let message: String?
+
+    var resolvedMessage: String? {
+        let candidates = [error, detail, message]
+        return candidates
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+    }
 }
 
 struct AuthSessionResponse: Decodable {
     let token: String
     let user: UserProfile
+
+    private enum CodingKeys: String, CodingKey {
+        case token
+        case accessToken
+        case access_token
+        case user
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        token =
+            try container.decodeIfPresent(String.self, forKey: .token)
+            ?? container.decodeIfPresent(String.self, forKey: .accessToken)
+            ?? container.decodeIfPresent(String.self, forKey: .access_token)
+            ?? ""
+        user = try container.decode(UserProfile.self, forKey: .user)
+    }
 }
 
 struct BootstrapResponse: Decodable {
@@ -36,6 +62,34 @@ struct BootstrapResponse: Decodable {
     let posts: [EcoPost]
     let chatMessages: [ChatMessage]
     let communityImpact: CommunityImpact
+
+    private enum CodingKeys: String, CodingKey {
+        case user
+        case activities
+        case challenges
+        case posts
+        case chatMessages
+        case communityImpact
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        user = try container.decode(UserProfile.self, forKey: .user)
+        activities = try container.decodeIfPresent([EcoActivity].self, forKey: .activities) ?? []
+        challenges = try container.decodeIfPresent([Challenge].self, forKey: .challenges) ?? []
+        posts = try container.decodeIfPresent([EcoPost].self, forKey: .posts) ?? []
+        chatMessages = try container.decodeIfPresent([ChatMessage].self, forKey: .chatMessages) ?? []
+        communityImpact = try container.decodeIfPresent(CommunityImpact.self, forKey: .communityImpact)
+            ?? CommunityImpact(
+                totalUsers: 0,
+                activeUsers: 0,
+                totalActivities: activities.count,
+                totalPosts: posts.count,
+                totalChallengesCompleted: challenges.filter(\.isCompleted).count,
+                totalCo2Saved: activities.reduce(0) { $0 + $1.co2Saved },
+                totalPoints: max(user.points, activities.reduce(0) { $0 + $1.points })
+            )
+    }
 }
 
 struct ActivityMutationResponse: Decodable {
@@ -56,10 +110,45 @@ private struct PostEnvelope: Decodable {
 
 private struct PostsEnvelope: Decodable {
     let posts: [EcoPost]
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let items = try? container.decode([EcoPost].self) {
+            posts = items
+            return
+        }
+
+        let keyed = try decoder.container(keyedBy: CodingKeys.self)
+        posts = try keyed.decodeIfPresent([EcoPost].self, forKey: .posts) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case posts
+        case data
+    }
 }
 
 private struct ChatEnvelope: Decodable {
     let messages: [ChatMessage]
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let items = try? container.decode([ChatMessage].self) {
+            messages = items
+            return
+        }
+
+        let keyed = try decoder.container(keyedBy: CodingKeys.self)
+        messages =
+            try keyed.decodeIfPresent([ChatMessage].self, forKey: .messages)
+            ?? keyed.decodeIfPresent([ChatMessage].self, forKey: .data)
+            ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case messages
+        case data
+    }
 }
 
 private struct LoginRequest: Encodable {
@@ -233,7 +322,7 @@ final class APIClient {
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
+            throw APIError.invalidResponse()
         }
 
         if httpResponse.statusCode == 401 {
@@ -243,20 +332,28 @@ final class APIClient {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             if let errorResponse = try? decoder.decode(APIErrorResponse.self, from: data) {
-                throw APIError.server(errorResponse.error)
+                throw APIError.server(
+                    errorResponse.resolvedMessage ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+                )
             }
-            throw APIError.invalidResponse
+            if let rawBody = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !rawBody.isEmpty {
+                throw APIError.server(rawBody)
+            }
+            throw APIError.invalidResponse()
         }
 
         do {
             return try decoder.decode(Response.self, from: data)
         } catch {
+            let decodeMessage = describeDecodingError(error, path: path)
             #if DEBUG
             let rawBody = String(data: data, encoding: .utf8) ?? "<non-utf8>"
             print("EcoIZ decode error for \(path): \(error)")
             print("EcoIZ raw response: \(rawBody)")
             #endif
-            throw APIError.invalidResponse
+            throw APIError.invalidResponse(decodeMessage)
         }
     }
 
@@ -272,9 +369,7 @@ final class APIClient {
     }
 
     private static func resolveBaseURL() -> String {
-        if let override = UserDefaults.standard.string(forKey: "ecoiz.backend.baseURLOverride")?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
+        if let override = validatedBaseURLOverride() {
             return override
         }
 
@@ -283,6 +378,44 @@ final class APIClient {
         #else
         return "http://MacBook-Pro--Erke.local:8000"
         #endif
+    }
+
+    private static func validatedBaseURLOverride() -> String? {
+        guard let rawOverride = UserDefaults.standard.string(forKey: "ecoiz.backend.baseURLOverride")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawOverride.isEmpty,
+            let url = URL(string: rawOverride),
+            let scheme = url.scheme?.lowercased(),
+            let host = url.host?.lowercased()
+        else {
+            return nil
+        }
+
+        guard scheme == "http" || scheme == "https" else {
+            UserDefaults.standard.removeObject(forKey: "ecoiz.backend.baseURLOverride")
+            return nil
+        }
+
+        let isAllowedHost =
+            host == "127.0.0.1" ||
+            host == "localhost" ||
+            host.hasSuffix(".local") ||
+            host.hasPrefix("192.168.") ||
+            host.hasPrefix("10.") ||
+            host.hasPrefix("172.16.") ||
+            host.hasPrefix("172.17.") ||
+            host.hasPrefix("172.18.") ||
+            host.hasPrefix("172.19.") ||
+            host.hasPrefix("172.2") ||
+            host.hasPrefix("172.30.") ||
+            host.hasPrefix("172.31.")
+
+        guard isAllowedHost else {
+            UserDefaults.standard.removeObject(forKey: "ecoiz.backend.baseURLOverride")
+            return nil
+        }
+
+        return rawOverride
     }
 
     private static func makeDecoder() -> JSONDecoder {
@@ -308,6 +441,33 @@ final class APIClient {
             try container.encode(DateParsing.iso8601WithFractional.string(from: date))
         }
         return encoder
+    }
+
+    private func describeDecodingError(_ error: Error, path: String) -> String {
+        guard let decodingError = error as? DecodingError else {
+            return "Backend вернул некорректный ответ для \(path)."
+        }
+
+        switch decodingError {
+        case .typeMismatch(_, let context):
+            return "Некорректный тип данных в \(codingPathDescription(context.codingPath)) для \(path)."
+        case .valueNotFound(_, let context):
+            return "В ответе нет значения \(codingPathDescription(context.codingPath)) для \(path)."
+        case .keyNotFound(let key, let context):
+            let pathWithKey = codingPathDescription(context.codingPath + [key])
+            return "В ответе отсутствует поле \(pathWithKey) для \(path)."
+        case .dataCorrupted(let context):
+            return context.debugDescription.isEmpty
+                ? "Поврежденные данные в ответе \(path)."
+                : "\(context.debugDescription) (\(path))."
+        @unknown default:
+            return "Backend вернул неподдерживаемый формат ответа для \(path)."
+        }
+    }
+
+    private func codingPathDescription(_ codingPath: [CodingKey]) -> String {
+        let path = codingPath.map(\.stringValue).joined(separator: ".")
+        return path.isEmpty ? "корневом объекте" : path
     }
 }
 
