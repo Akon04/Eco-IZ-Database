@@ -16,6 +16,16 @@ from app.services.seed import ensure_seed_data
 
 
 class BackendAPITests(unittest.TestCase):
+    @staticmethod
+    def sample_media_payload() -> list[dict[str, str]]:
+        return [
+            {
+                "id": "proof-photo",
+                "kind": "photo",
+                "base64Data": "dGVzdC1pbWFnZS1ieXRlcw==",
+            }
+        ]
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.engine = create_engine(
@@ -232,7 +242,7 @@ class BackendAPITests(unittest.TestCase):
                 "co2Saved": 0.05,
                 "points": 10,
                 "note": "",
-                "media": [],
+                "media": self.sample_media_payload(),
                 "shareToNews": False,
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -248,12 +258,20 @@ class BackendAPITests(unittest.TestCase):
                 "co2Saved": 0.05,
                 "points": 10,
                 "note": "",
-                "media": [],
+                "media": self.sample_media_payload(),
                 "shareToNews": False,
             },
             headers={"Authorization": f"Bearer {token}"},
         )
-        self.assertEqual(duplicate_plastic.status_code, 409)
+        self.assertEqual(duplicate_plastic.status_code, 201)
+        self.assertEqual(
+            duplicate_plastic.json()["user"]["streakDays"],
+            first_plastic.json()["user"]["streakDays"],
+        )
+        duplicate_progress = next(
+            item for item in duplicate_plastic.json()["challenges"] if item["title"] == "3 дня без пластика"
+        )
+        self.assertEqual(duplicate_progress["currentCount"], before_plastic["currentCount"] + 1)
 
         second_plastic = self.client.post(
             "/activities",
@@ -263,7 +281,7 @@ class BackendAPITests(unittest.TestCase):
                 "co2Saved": 0.12,
                 "points": 20,
                 "note": "",
-                "media": [],
+                "media": self.sample_media_payload(),
                 "shareToNews": False,
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -291,7 +309,7 @@ class BackendAPITests(unittest.TestCase):
                 "co2Saved": 999,
                 "points": 999,
                 "note": "Доехал до учебы на велосипеде и взял многоразовую бутылку.",
-                "media": [],
+                "media": self.sample_media_payload(),
                 "shareToNews": False,
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -529,7 +547,7 @@ class BackendAPITests(unittest.TestCase):
                     "co2Saved": 0.1,
                     "points": 1,
                     "note": "",
-                    "media": [],
+                    "media": self.sample_media_payload(),
                     "shareToNews": False,
                 },
                 headers={"Authorization": f"Bearer {token}"},
@@ -572,7 +590,7 @@ class BackendAPITests(unittest.TestCase):
                 "co2Saved": 1.0,
                 "points": 40,
                 "note": "",
-                "media": [],
+                "media": self.sample_media_payload(),
                 "shareToNews": False,
             },
             headers={"Authorization": f"Bearer {token}"},

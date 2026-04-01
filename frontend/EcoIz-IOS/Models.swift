@@ -107,6 +107,8 @@ struct EcoActivity: Identifiable, Decodable {
     let title: String
     let co2Saved: Double
     let points: Int
+    let note: String?
+    let media: [PostMediaAttachment]
     let createdAt: Date
 
     init(
@@ -115,6 +117,8 @@ struct EcoActivity: Identifiable, Decodable {
         title: String,
         co2Saved: Double,
         points: Int,
+        note: String? = nil,
+        media: [PostMediaAttachment] = [],
         createdAt: Date
     ) {
         self.id = id
@@ -122,6 +126,8 @@ struct EcoActivity: Identifiable, Decodable {
         self.title = title
         self.co2Saved = co2Saved
         self.points = points
+        self.note = note
+        self.media = media
         self.createdAt = createdAt
     }
 
@@ -132,6 +138,8 @@ struct EcoActivity: Identifiable, Decodable {
         case co2Saved
         case co2_saved
         case points
+        case note
+        case media
         case createdAt
         case created_at
     }
@@ -147,6 +155,8 @@ struct EcoActivity: Identifiable, Decodable {
             ?? container.decodeIfPresent(Double.self, forKey: .co2_saved)
             ?? 0
         points = try container.decodeIfPresent(Int.self, forKey: .points) ?? 0
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+        media = try container.decodeIfPresent([PostMediaAttachment].self, forKey: .media) ?? []
         createdAt =
             try container.decodeIfPresent(Date.self, forKey: .createdAt)
             ?? container.decodeIfPresent(Date.self, forKey: .created_at)

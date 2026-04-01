@@ -311,7 +311,7 @@ def ensure_seed_data(db: Session) -> None:
             ]
         )
     if not db.scalar(select(ChatMessage).where(ChatMessage.user_id == user.id)):
-        db.add(ChatMessage(user_id=user.id, role="assistant", text="Привет! Я эко-ИИ. Помогу улучшить твои экопривычки и мотивацию.", created_at=now))
+        db.add(ChatMessage(user_id=user.id, role="assistant", text="Привет. Я могу подсказать идеи на день, помочь с экопривычками или просто нормально ответить на вопрос.", created_at=now))
     db.flush()
 
     user_ids = [item.id for item in db.scalars(select(User)).all()]

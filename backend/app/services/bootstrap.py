@@ -7,7 +7,7 @@ from app.models.chat import ChatMessage
 from app.models.challenge import Challenge
 from app.models.challenge import UserChallenge
 from app.models.post import Post, PostMedia
-from app.models.user import Activity, User
+from app.models.user import Activity, ActivityMedia, User
 from app.schemas.bootstrap import (
     ActivityResponse,
     BootstrapResponse,
@@ -76,6 +76,8 @@ def serialize_activity(activity: Activity) -> ActivityResponse:
         title=activity.title,
         co2Saved=activity.co2_saved,
         points=activity.points,
+        note=activity.note,
+        media=[serialize_activity_media(media) for media in activity.media],
         createdAt=activity.created_at,
     )
 
@@ -99,6 +101,14 @@ def serialize_user_challenge(item: UserChallenge) -> ChallengeResponse:
 
 
 def serialize_media(item: PostMedia) -> PostMediaResponse:
+    return PostMediaResponse(
+        id=str(item.id),
+        kind=item.kind,
+        base64Data=base64.b64encode(item.data).decode("utf-8"),
+    )
+
+
+def serialize_activity_media(item: ActivityMedia) -> PostMediaResponse:
     return PostMediaResponse(
         id=str(item.id),
         kind=item.kind,

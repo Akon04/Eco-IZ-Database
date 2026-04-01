@@ -159,6 +159,11 @@ final class AppState: ObservableObject {
         media: [PostMediaAttachment] = [],
         shareToNews: Bool = true
     ) async -> Bool {
+        guard media.contains(where: { $0.kind == .photo }) else {
+            alertMessage = "Добавь хотя бы одно фото, чтобы подтвердить активность."
+            return false
+        }
+
         alertMessage = nil
         isSubmittingActivity = true
         defer { isSubmittingActivity = false }
@@ -174,7 +179,7 @@ final class AppState: ObservableObject {
                 shareToNews: shareToNews
             )
             updateUser(response.user, animateLevelUp: true)
-            challenges = response.challenges
+            challenges = sortChallenges(response.challenges)
             activities.insert(response.activity, at: 0)
             if shareToNews {
                 do {
@@ -237,7 +242,7 @@ final class AppState: ObservableObject {
         do {
             let response = try await apiClient.claimChallenge(id: challengeID)
             updateUser(response.user, animateLevelUp: true)
-            challenges = response.challenges
+            challenges = sortChallenges(response.challenges)
             return response.challenge
         } catch {
             present(error)
@@ -249,7 +254,7 @@ final class AppState: ObservableObject {
         let bootstrap = try await apiClient.bootstrap()
         updateUser(bootstrap.user, animateLevelUp: false)
         activities = bootstrap.activities
-        challenges = bootstrap.challenges
+        challenges = sortChallenges(bootstrap.challenges)
         posts = bootstrap.posts
         chatMessages = bootstrap.chatMessages
         communityImpact = bootstrap.communityImpact
@@ -296,5 +301,33 @@ final class AppState: ObservableObject {
         user = newUser
         guard animateLevelUp, newUser.level.number > previousLevel.number else { return }
         levelUpLevel = newUser.level
+    }
+
+    private func sortChallenges(_ items: [Challenge]) -> [Challenge] {
+        items.sorted { left, right in
+            let leftRemaining = remainingSteps(for: left)
+            let rightRemaining = remainingSteps(for: right)
+
+            if leftRemaining != rightRemaining {
+                return leftRemaining < rightRemaining
+            }
+            let leftProgress = challengeProgress(for: left)
+            let rightProgress = challengeProgress(for: right)
+            if leftProgress != rightProgress {
+                return leftProgress > rightProgress
+            }
+            if left.rewardPoints != right.rewardPoints {
+                return left.rewardPoints > right.rewardPoints
+            }
+            return left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+        }
+    }
+
+    private func challengeProgress(for challenge: Challenge) -> Double {
+        Double(min(challenge.currentCount, challenge.targetCount)) / Double(max(challenge.targetCount, 1))
+    }
+
+    private func remainingSteps(for challenge: Challenge) -> Int {
+        max(challenge.targetCount - challenge.currentCount, 0)
     }
 }

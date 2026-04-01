@@ -80,6 +80,32 @@ struct DuoSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+struct DuoDestructiveButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(EcoTypography.buttonPrimary)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color(hex: 0xFF6B57), Color(hex: 0xE53935)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(.white.opacity(0.22), lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .shadow(color: Color(hex: 0xE53935).opacity(0.24), radius: 10, y: 6)
+    }
+}
+
 struct DuoCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content

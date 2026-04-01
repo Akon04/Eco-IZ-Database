@@ -33,6 +33,22 @@ enum EcoFeedback {
         )
     }
 
+    static func playAchievementUnlocked() {
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        generator.notificationOccurred(.success)
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.8)
+        playChime(
+            key: "achievementUnlocked",
+            notes: [
+                (587.33, 0.10),
+                (739.99, 0.12),
+                (880.00, 0.14),
+                (1174.66, 0.20),
+            ]
+        )
+    }
+
     private static func playChime(key: String, notes: [(Double, Double)]) {
         configureSessionIfNeeded()
         if let player = cachedPlayers[key] {

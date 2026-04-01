@@ -21,6 +21,8 @@ class ActivityResponse(BaseModel):
     title: str
     co2Saved: float
     points: int
+    note: str | None = None
+    media: list["PostMediaResponse"] = []
     createdAt: datetime
 
 

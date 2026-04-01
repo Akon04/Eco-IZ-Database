@@ -1046,16 +1046,18 @@ struct ChallengesView: View {
                             .padding(.horizontal, compactLayout ? 14 : 16)
                             .padding(.bottom, 80)
                         }
+                        .allowsHitTesting(!isCelebrationVisible)
+                    }
 
-                        if let activeCelebrationChallenge = celebratingChallenge, isCelebrationVisible {
-                            ChallengeClaimCelebrationOverlay(challenge: activeCelebrationChallenge) {
-                                withAnimation(.easeInOut(duration: 0.25)) {
-                                    isCelebrationVisible = false
-                                }
-                                celebratingChallenge = nil
+                    if let activeCelebrationChallenge = celebratingChallenge, isCelebrationVisible {
+                        ChallengeClaimCelebrationOverlay(challenge: activeCelebrationChallenge) {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) {
+                                isCelebrationVisible = false
                             }
-                            .transition(.asymmetric(insertion: .scale(scale: 0.92).combined(with: .opacity), removal: .opacity))
+                            celebratingChallenge = nil
                         }
+                        .zIndex(20)
+                        .transition(.asymmetric(insertion: .scale(scale: 0.9).combined(with: .opacity), removal: .scale(scale: 0.96).combined(with: .opacity)))
                     }
                 }
             }
@@ -1085,6 +1087,10 @@ struct AddActivityView: View {
 
     private var quickCategories: [ActivityCategory] {
         [.transport, .water, .plastic, .waste, .energy, .custom]
+    }
+
+    private var hasRequiredActivityMedia: Bool {
+        activityMedia.contains(where: { $0.kind == .photo })
     }
 
     var body: some View {
@@ -1235,9 +1241,9 @@ struct AddActivityView: View {
                                             PhotosPicker(
                                                 selection: $activityPickerItems,
                                                 maxSelectionCount: 3,
-                                                matching: .any(of: [.images, .videos])
+                                                matching: .images
                                             ) {
-                                                Label("Добавить фото/видео", systemImage: "camera.fill")
+                                                Label("Добавить фото", systemImage: "camera.fill")
                                                     .font(EcoTypography.callout)
                                                     .foregroundStyle(.white)
                                                     .padding(.vertical, 10)
@@ -1251,6 +1257,10 @@ struct AddActivityView: View {
                                             if !activityMedia.isEmpty {
                                                 ThreadMediaStrip(media: activityMedia)
                                             }
+
+                                            Text(hasRequiredActivityMedia ? "Фото приложено. Это будет использовано как подтверждение активности." : "Добавь хотя бы одно фото. Оно обязательно как подтверждение активности.")
+                                                .font(EcoTypography.caption)
+                                                .foregroundStyle(hasRequiredActivityMedia ? .white.opacity(0.82) : Color.white)
 
                                             ZStack(alignment: .topLeading) {
                                                 TextEditor(text: $activityNote)
@@ -1279,15 +1289,19 @@ struct AddActivityView: View {
                                             }
 
                                             HStack(spacing: 10) {
-                                                Button("Пропустить") {
-                                                    completeDraft(saveMedia: false)
+                                                Button("Назад") {
+                                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                                        self.draftActivity = nil
+                                                    }
                                                 }
                                                 .buttonStyle(DuoSecondaryButtonStyle())
 
-                                                Button("Сохранить") {
-                                                    completeDraft(saveMedia: true)
+                                                Button("Продолжить") {
+                                                    completeDraft()
                                                 }
                                                 .buttonStyle(DuoPrimaryButtonStyle())
+                                                .disabled(!hasRequiredActivityMedia)
+                                                .opacity(hasRequiredActivityMedia ? 1 : 0.55)
                                             }
                                         }
                                         .padding(16)
@@ -1501,9 +1515,9 @@ struct AddActivityView: View {
         activityNote = initialNote
     }
 
-    private func completeDraft(saveMedia: Bool) {
+    private func completeDraft() {
         guard let draftActivity else { return }
-        let finalNote = (saveMedia || draftActivity.category == .custom) ? activityNote : nil
+        let finalNote = activityNote
         pendingSubmission = PendingActivitySubmission(
             category: draftActivity.category,
             title: draftActivity.title,
@@ -1511,7 +1525,7 @@ struct AddActivityView: View {
             points: draftActivity.points,
             isEstimated: draftActivity.isEstimated,
             note: finalNote,
-            media: saveMedia ? activityMedia : []
+            media: activityMedia
         )
         self.draftActivity = nil
     }
@@ -2047,6 +2061,7 @@ struct ProfileView: View {
     @State private var showAllChallengeAchievements = false
     @State private var showAllActivities = false
     @State private var selectedAchievement: Challenge?
+    @State private var selectedActivity: EcoActivity?
 
     var completedChallengeAchievements: [Challenge] {
         appState.challenges.filter(\.isClaimed)
@@ -2085,19 +2100,20 @@ struct ProfileView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                EcoBackground()
+            GeometryReader { proxy in
+                ZStack {
+                    EcoBackground()
 
-                VStack(spacing: 14) {
-                    HStack {
-                        Text("Профиль")
-                            .font(EcoTypography.title1)
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-
-                    ScrollView {
                     VStack(spacing: 14) {
+                        HStack {
+                            Text("Профиль")
+                                .font(EcoTypography.title1)
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+
+                        ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 12) {
                             ViewThatFits(in: .horizontal) {
                                 HStack(spacing: 12) {
@@ -2248,27 +2264,34 @@ struct ProfileView: View {
                                 .buttonStyle(.plain)
                             }
                             ForEach(appState.activities.prefix(5)) { activity in
-                                HStack(spacing: 8) {
-                                    Circle()
-                                        .fill(Color(hex: 0xEAF5FF))
-                                        .frame(width: 28, height: 28)
-                                        .overlay(
-                                            Image(systemName: activity.category.systemIconName)
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundStyle(activity.category.tintColor)
-                                        )
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(activity.title)
-                                            .font(EcoTypography.subheadline)
-                                        Text("\(activity.category.rawValue) • \(relativeTime(activity.createdAt))")
+                                Button {
+                                    selectedActivity = activity
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Circle()
+                                            .fill(Color(hex: 0xEAF5FF))
+                                            .frame(width: 28, height: 28)
+                                            .overlay(
+                                                Image(systemName: activity.category.systemIconName)
+                                                    .font(.system(size: 12, weight: .bold))
+                                                    .foregroundStyle(activity.category.tintColor)
+                                            )
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(activity.title)
+                                                .font(EcoTypography.subheadline)
+                                                .foregroundStyle(EcoTheme.ink)
+                                                .multilineTextAlignment(.leading)
+                                            Text("\(activity.category.rawValue) • \(relativeTime(activity.createdAt))")
+                                                .font(EcoTypography.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text("+\(activity.points)")
                                             .font(EcoTypography.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(EcoTheme.primary)
                                     }
-                                    Spacer()
-                                    Text("+\(activity.points)")
-                                        .font(EcoTypography.caption)
-                                        .foregroundStyle(EcoTheme.primary)
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2277,11 +2300,14 @@ struct ProfileView: View {
                         Button("Выйти") {
                             appState.signOut()
                         }
-                        .buttonStyle(DuoPrimaryButtonStyle())
+                        .buttonStyle(DuoDestructiveButtonStyle())
                     }
+                    .frame(maxWidth: .infinity)
                     .padding()
                     .padding(.bottom, 80)
+                    .frame(width: proxy.size.width)
                 }
+                    }
                 }
             }
             .navigationBarHidden(true)
@@ -2293,6 +2319,9 @@ struct ProfileView: View {
             }
             .sheet(item: $selectedAchievement) { challenge in
                 AchievementDetailSheet(challenge: challenge)
+            }
+            .sheet(item: $selectedActivity) { activity in
+                ActivityDetailSheet(activity: activity)
             }
         }
     }
@@ -2338,6 +2367,7 @@ private struct ProfileMetricPill: View {
 private struct AllActivitiesView: View {
     let activities: [EcoActivity]
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedActivity: EcoActivity?
 
     var body: some View {
         NavigationStack {
@@ -2353,29 +2383,35 @@ private struct AllActivitiesView: View {
                                 .padding(.top, 24)
                         } else {
                             ForEach(activities) { activity in
-                                HStack(spacing: 10) {
-                                    Circle()
-                                        .fill(Color(hex: 0xEAF5FF))
-                                        .frame(width: 32, height: 32)
-                                        .overlay(
-                                            Image(systemName: activity.category.systemIconName)
-                                                .font(.system(size: 13, weight: .bold))
-                                                .foregroundStyle(activity.category.tintColor)
-                                        )
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(activity.title)
-                                            .font(EcoTypography.subheadline)
-                                            .foregroundStyle(EcoTheme.ink)
-                                        Text("\(activity.category.rawValue) • \(relativeTime(activity.createdAt))")
+                                Button {
+                                    selectedActivity = activity
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Circle()
+                                            .fill(Color(hex: 0xEAF5FF))
+                                            .frame(width: 32, height: 32)
+                                            .overlay(
+                                                Image(systemName: activity.category.systemIconName)
+                                                    .font(.system(size: 13, weight: .bold))
+                                                    .foregroundStyle(activity.category.tintColor)
+                                            )
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(activity.title)
+                                                .font(EcoTypography.subheadline)
+                                                .foregroundStyle(EcoTheme.ink)
+                                                .multilineTextAlignment(.leading)
+                                            Text("\(activity.category.rawValue) • \(relativeTime(activity.createdAt))")
+                                                .font(EcoTypography.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text("+\(activity.points)")
                                             .font(EcoTypography.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(EcoTheme.primary)
                                     }
-                                    Spacer()
-                                    Text("+\(activity.points)")
-                                        .font(EcoTypography.caption)
-                                        .foregroundStyle(EcoTheme.primary)
+                                    .surfaceCard()
                                 }
-                                .surfaceCard()
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -2390,6 +2426,9 @@ private struct AllActivitiesView: View {
                     Button("Закрыть") { dismiss() }
                 }
             }
+            .sheet(item: $selectedActivity) { activity in
+                ActivityDetailSheet(activity: activity)
+            }
         }
     }
 
@@ -2398,6 +2437,135 @@ private struct AllActivitiesView: View {
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+private struct ActivityDetailSheet: View {
+    let activity: EcoActivity
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                EcoBackground()
+
+                ScrollView {
+                    VStack(spacing: 18) {
+                        VStack(spacing: 12) {
+                            Circle()
+                                .fill(Color.white.opacity(0.92))
+                                .frame(width: 86, height: 86)
+                                .overlay(
+                                    Image(systemName: activity.category.systemIconName)
+                                        .font(.system(size: 32, weight: .semibold))
+                                        .foregroundStyle(activity.category.tintColor)
+                                )
+                                .shadow(color: activity.category.tintColor.opacity(0.12), radius: 14, y: 8)
+
+                            Text(activity.title)
+                                .font(EcoTypography.largeTitle)
+                                .foregroundStyle(EcoTheme.ink)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(3)
+                                .minimumScaleFactor(0.82)
+
+                            Text("\(activity.category.rawValue) • \(relativeTime(activity.createdAt))")
+                                .font(EcoTypography.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            ActivityDetailRow(
+                                icon: "star.fill",
+                                iconTint: Color(hex: 0xE5AF3C),
+                                title: "Награда",
+                                value: "+\(activity.points) очк."
+                            )
+                            ActivityDetailRow(
+                                icon: "leaf.fill",
+                                iconTint: EcoTheme.primary,
+                                title: "Эко-вклад",
+                                value: "\(String(format: "%.1f", activity.co2Saved)) кг CO₂"
+                            )
+                            ActivityDetailRow(
+                                icon: "text.alignleft",
+                                iconTint: Color(hex: 0x78A7FF),
+                                title: "Описание",
+                                value: detailDescription
+                            )
+                        }
+                        .surfaceCard()
+
+                        if !activity.media.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("Фото")
+                                    .font(EcoTypography.title2)
+                                    .foregroundStyle(EcoTheme.ink)
+
+                                ThreadMediaGrid(media: activity.media)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .surfaceCard()
+                        }
+                    }
+                    .padding()
+                    .padding(.bottom, 24)
+                }
+            }
+            .navigationTitle("Активити")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var detailDescription: String {
+        let trimmed = activity.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Пользователь добавил активность без текстового описания." : trimmed
+    }
+
+    private func relativeTime(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+private struct ActivityDetailRow: View {
+    let icon: String
+    let iconTint: Color
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(iconTint.opacity(0.14))
+                .frame(width: 34, height: 34)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(iconTint)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(EcoTypography.headline)
+                    .foregroundStyle(EcoTheme.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
     }
 }
 
@@ -2518,6 +2686,7 @@ private struct AchievementInfoRow: View {
 private struct AllChallengeAchievementsView: View {
     let challenges: [Challenge]
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedChallenge: Challenge?
 
     var body: some View {
         NavigationStack {
@@ -2533,21 +2702,27 @@ private struct AllChallengeAchievementsView: View {
                                 .padding(.top, 24)
                         } else {
                             ForEach(challenges) { challenge in
-                                HStack(spacing: 12) {
-                                    AchievementBadgeView(challenge: challenge, size: 50)
+                                Button {
+                                    selectedChallenge = challenge
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        AchievementBadgeView(challenge: challenge, size: 50)
 
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(challenge.title)
-                                            .font(EcoTypography.headline)
-                                            .foregroundStyle(EcoTheme.ink)
-                                        Text("+\(challenge.rewardPoints) очк.")
-                                            .font(EcoTypography.caption)
-                                            .foregroundStyle(Color(hex: 0xD89A00))
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(challenge.title)
+                                                .font(EcoTypography.headline)
+                                                .foregroundStyle(EcoTheme.ink)
+                                                .multilineTextAlignment(.leading)
+                                            Text("+\(challenge.rewardPoints) очк.")
+                                                .font(EcoTypography.caption)
+                                                .foregroundStyle(Color(hex: 0xD89A00))
+                                        }
+                                        Spacer()
+                                        Image(systemName: "checkmark.seal.fill")
+                                            .foregroundStyle(Color(hex: 0x0A8E79))
                                     }
-                                    Spacer()
-                                    Image(systemName: "checkmark.seal.fill")
-                                        .foregroundStyle(Color(hex: 0x0A8E79))
                                 }
+                                .buttonStyle(.plain)
                                 .surfaceCard()
                             }
                         }
@@ -2563,6 +2738,9 @@ private struct AllChallengeAchievementsView: View {
                     Button("Закрыть") { dismiss() }
                 }
             }
+        }
+        .sheet(item: $selectedChallenge) { challenge in
+            AchievementDetailSheet(challenge: challenge)
         }
     }
 }
@@ -2792,89 +2970,131 @@ private struct ChallengeClaimCelebrationOverlay: View {
     @State private var badgeScale: CGFloat = 0.5
     @State private var glowOpacity = 0.0
     @State private var ringScale: CGFloat = 0.7
-    @State private var contentOffset: CGFloat = 24
+    @State private var contentOffset: CGFloat = 18
     @State private var sparkleRotation: Double = -16
+    @State private var particleOffset: CGFloat = 18
+    @State private var particleOpacity = 0.0
+    @State private var cardScale: CGFloat = 0.94
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [Color.black.opacity(0.12), Color(hex: challenge.badgeTintHex).opacity(0.22)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.1), Color.black.opacity(0.18)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
                 .ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                ZStack {
-                    Circle()
-                        .stroke(Color.white.opacity(0.38), lineWidth: 2)
-                        .frame(width: 188, height: 188)
-                        .scaleEffect(ringScale)
-                        .opacity(1.1 - glowOpacity * 0.35)
+            VStack {
+                Spacer()
 
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [Color(hex: challenge.badgeBackgroundHex), Color.white.opacity(0.12)],
-                                center: .center,
-                                startRadius: 10,
-                                endRadius: 120
+                VStack(spacing: 16) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white.opacity(0.38), lineWidth: 2)
+                            .frame(width: 188, height: 188)
+                            .scaleEffect(ringScale)
+                            .opacity(1.1 - glowOpacity * 0.35)
+
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [Color(hex: challenge.badgeBackgroundHex), Color.white.opacity(0.12)],
+                                    center: .center,
+                                    startRadius: 10,
+                                    endRadius: 120
+                                )
                             )
-                        )
-                        .frame(width: 170, height: 170)
-                        .scaleEffect(1 + glowOpacity * 0.08)
+                            .frame(width: 170, height: 170)
+                            .scaleEffect(1 + glowOpacity * 0.08)
 
-                    ForEach(0..<8, id: \.self) { index in
-                        Capsule()
-                            .fill(Color.white.opacity(0.85))
-                            .frame(width: 6, height: 22)
-                            .offset(y: -112)
-                            .rotationEffect(.degrees(Double(index) * 45 + sparkleRotation))
-                            .opacity(glowOpacity)
+                        ForEach(0..<8, id: \.self) { index in
+                            Capsule()
+                                .fill(Color.white.opacity(0.85))
+                                .frame(width: 6, height: 22)
+                                .offset(y: -112)
+                                .rotationEffect(.degrees(Double(index) * 45 + sparkleRotation))
+                                .opacity(glowOpacity)
+                        }
+
+                        ForEach(0..<10, id: \.self) { index in
+                            Image(systemName: index.isMultiple(of: 2) ? "sparkles" : "leaf.fill")
+                                .font(.system(size: index.isMultiple(of: 2) ? 16 : 13, weight: .bold))
+                                .foregroundStyle(index.isMultiple(of: 2) ? Color.white : Color(hex: 0xD7F4BD))
+                                .offset(y: -110 - particleOffset)
+                                .rotationEffect(.degrees(Double(index) * 36))
+                                .opacity(particleOpacity)
+                        }
+
+                        AchievementBadgeView(challenge: challenge, size: 108)
+                            .scaleEffect(badgeScale)
+                            .shadow(color: Color(hex: challenge.badgeTintHex).opacity(0.35), radius: 22, y: 10)
                     }
 
-                    AchievementBadgeView(challenge: challenge, size: 108)
-                        .scaleEffect(badgeScale)
-                        .shadow(color: Color(hex: challenge.badgeTintHex).opacity(0.35), radius: 22, y: 10)
+                    VStack(spacing: 8) {
+                        Text("Ты молодец!")
+                            .font(EcoTypography.largeTitle)
+                            .foregroundStyle(EcoTheme.ink)
+                        Text("Ачивка «\(challenge.title)» получена")
+                            .font(EcoTypography.headline)
+                            .lineSpacing(2)
+                            .foregroundStyle(EcoTheme.ink)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("Теперь она хранится в профиле.")
+                            .font(EcoTypography.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .offset(y: contentOffset)
+                    .opacity(glowOpacity)
+
+                    HStack(spacing: 10) {
+                        CelebrationPill(text: "+\(challenge.rewardPoints) очк.", icon: "star.fill", tint: Color(hex: 0xD89A00))
+                        CelebrationPill(text: "Профиль обновлен", icon: "person.crop.circle.fill", tint: EcoTheme.primary)
+                    }
+                    .offset(y: contentOffset)
+                    .opacity(glowOpacity)
+
+                    Button("Продолжить") {
+                        onDismiss()
+                    }
+                    .buttonStyle(DuoPrimaryButtonStyle())
+                    .padding(.top, 6)
+                }
+                .padding(28)
+                .frame(maxWidth: 360)
+                .background(Color.white.opacity(0.96), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.14), radius: 28, y: 12)
+                .padding(.horizontal, 28)
+                .scaleEffect(cardScale)
+                .onAppear {
+                    EcoFeedback.playAchievementUnlocked()
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.64)) {
+                        badgeScale = 1.0
+                        glowOpacity = 1.0
+                        ringScale = 1.14
+                        contentOffset = 0
+                        sparkleRotation = 12
+                        particleOpacity = 1.0
+                        particleOffset = 0
+                        cardScale = 1.0
+                    }
+                    withAnimation(.easeOut(duration: 0.95).delay(0.08)) {
+                        ringScale = 1.18
+                    }
                 }
 
-                VStack(spacing: 8) {
-                    Text("Ты молодец!")
-                        .font(EcoTypography.largeTitle)
-                        .foregroundStyle(EcoTheme.ink)
-                    Text("Ачивка «\(challenge.title)» получена")
-                        .font(EcoTypography.title2)
-                        .foregroundStyle(EcoTheme.ink)
-                        .multilineTextAlignment(.center)
-                    Text("Теперь она хранится в профиле.")
-                        .font(EcoTypography.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .offset(y: contentOffset)
-                .opacity(glowOpacity)
-
-                HStack(spacing: 10) {
-                    CelebrationPill(text: "+\(challenge.rewardPoints) очк.", icon: "star.fill", tint: Color(hex: 0xD89A00))
-                    CelebrationPill(text: "Профиль обновлен", icon: "person.crop.circle.fill", tint: EcoTheme.primary)
-                }
-                .offset(y: contentOffset)
-                .opacity(glowOpacity)
-            }
-            .padding(28)
-            .background(Color.white.opacity(0.96), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .stroke(Color.white.opacity(0.7), lineWidth: 1)
-            )
-            .padding(.horizontal, 28)
-            .onAppear {
-                withAnimation(.spring(response: 0.42, dampingFraction: 0.64)) {
-                    badgeScale = 1.0
-                    glowOpacity = 1.0
-                    ringScale = 1.14
-                    contentOffset = 0
-                    sparkleRotation = 12
-                }
+                Spacer()
             }
         }
         .contentShape(Rectangle())
@@ -3519,20 +3739,42 @@ private struct DuoInputField: View {
 private struct DuoInputSecureField: View {
     let title: String
     @Binding var text: String
+    @State private var isRevealed = false
 
     var body: some View {
-        SecureField(title, text: $text)
+        HStack(spacing: 10) {
+            Group {
+                if isRevealed {
+                    TextField(title, text: $text)
+                } else {
+                    SecureField(title, text: $text)
+                }
+            }
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
             .font(EcoTypography.body)
             .foregroundStyle(EcoTheme.ink)
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(EcoTheme.fieldBackground)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(EcoTheme.surfaceStroke.opacity(0.7), lineWidth: 1)
-            )
+
+            Button {
+                isRevealed.toggle()
+            } label: {
+                Image(systemName: isRevealed ? "eye.slash" : "eye")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isRevealed ? "Скрыть пароль" : "Показать пароль")
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(EcoTheme.fieldBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(EcoTheme.surfaceStroke.opacity(0.7), lineWidth: 1)
+        )
     }
 }
 

@@ -12,7 +12,7 @@ from app.models.admin import EcoCategory, Habit
 from app.models.challenge import Challenge, UserChallenge
 from app.models.chat import ChatMessage
 from app.models.post import Post, PostMedia
-from app.models.user import Activity, User
+from app.models.user import Activity, ActivityMedia, User
 from app.schemas.admin import (
     AchievementMetricsResponse,
     AchievementResponse,
@@ -74,7 +74,7 @@ def fetch_user_with_relations(db: Session, user_id) -> User:
     stmt = (
         select(User)
         .options(
-            selectinload(User.activities),
+            selectinload(User.activities).selectinload(Activity.media),
             selectinload(User.posts).selectinload(Post.media),
             selectinload(User.chat_messages),
             selectinload(User.user_challenges).selectinload(UserChallenge.challenge),
@@ -157,7 +157,7 @@ def serialize_admin_user_detail(user: User) -> AdminUserDetailResponse:
         adminNote=user.admin_note or "",
         recentActivities=[
             AdminUserActivityResponse(
-                **serialize_activity(item).model_dump(),
+                **serialize_activity(item).model_dump(exclude={"note", "media"}),
                 userId=str(user.id),
                 username=user.username,
                 userEmail=user.email,
@@ -186,7 +186,7 @@ def serialize_admin_user_detail(user: User) -> AdminUserDetailResponse:
 
 def serialize_admin_activity(activity: Activity) -> AdminUserActivityResponse:
     return AdminUserActivityResponse(
-        **serialize_activity(activity).model_dump(),
+        **serialize_activity(activity).model_dump(exclude={"note", "media"}),
         userId=str(activity.user.id),
         username=activity.user.username,
         userEmail=activity.user.email,
@@ -278,7 +278,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
 
     base_challenges = db.scalars(select(Challenge)).all()
     assign_challenges_for_user(db, user, base_challenges)
-    db.add(ChatMessage(user_id=user.id, role="assistant", text="Привет! Я эко-ИИ. Помогу улучшить твои экопривычки и мотивацию."))
+    db.add(ChatMessage(user_id=user.id, role="assistant", text="Привет. Я могу подсказать идеи на день, помочь с экопривычками или просто нормально ответить на вопрос."))
     db.commit()
     db.refresh(user)
 
@@ -350,16 +350,10 @@ def add_activity(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Activity title is required.")
 
     user = fetch_user_with_relations(db, current_user.id)
-    duplicate_today = any(
-        item.category == payload.category
-        and item.title.casefold() == title.casefold()
-        and item.created_at.date() == now.date()
-        for item in user.activities
-    )
-    if duplicate_today:
+    if not any(media.kind == "photo" for media in payload.media):
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This activity was already added today.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Добавь хотя бы одно фото для подтверждения активности.",
         )
 
     if payload.category == "Своя активность":
@@ -379,6 +373,14 @@ def add_activity(
     )
     db.add(activity)
     db.flush()
+    for media in payload.media:
+        db.add(
+            ActivityMedia(
+                activity_id=activity.id,
+                kind=media.kind,
+                data=base64.b64decode(media.base64Data.encode("utf-8")),
+            )
+        )
     db.refresh(user)
     user = fetch_user_with_relations(db, user.id)
     recalculate_user_progress(user)
