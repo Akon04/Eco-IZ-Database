@@ -1,6 +1,7 @@
 import { DashboardWorkspace } from "@/components/dashboard/dashboard-workspace";
 import { PageHeader } from "@/components/page-header";
 import { getAchievementMetrics, listAchievements } from "@/lib/api/achievements";
+import { getEcoAnalytics } from "@/lib/api/dashboard";
 import { getCategoryMetrics } from "@/lib/api/categories";
 import { isMockMode } from "@/lib/config";
 import { getHabitMetrics } from "@/lib/api/habits";
@@ -17,6 +18,7 @@ export default async function DashboardPage() {
     posts,
     users,
     achievements,
+    ecoAnalytics,
   ] = isMockMode()
     ? await Promise.all([
         getAdminUserMetrics(),
@@ -27,6 +29,7 @@ export default async function DashboardPage() {
         listPosts(),
         listAdminUsers(),
         listAchievements(),
+        getEcoAnalytics(),
       ])
     : await Promise.all([
         Promise.resolve({
@@ -47,7 +50,7 @@ export default async function DashboardPage() {
         }),
         Promise.resolve({
           totalPosts: 0,
-          flaggedPosts: 0,
+          needsReviewPosts: 0,
           hiddenPosts: 0,
           totalReports: 0,
         }),
@@ -59,6 +62,13 @@ export default async function DashboardPage() {
         Promise.resolve([]),
         Promise.resolve([]),
         Promise.resolve([]),
+        Promise.resolve({
+          categoryBreakdown: [],
+          topCategory: "",
+          customActivitiesCount: 0,
+          averageCo2PerActivity: 0,
+          topUsersByActivity: [],
+        }),
       ]);
 
   return (
@@ -76,6 +86,7 @@ export default async function DashboardPage() {
         initialPosts={posts}
         initialUsers={users}
         initialAchievements={achievements}
+        initialEcoAnalytics={ecoAnalytics}
       />
     </>
   );
