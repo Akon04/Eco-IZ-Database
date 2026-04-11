@@ -118,24 +118,17 @@ struct AuthView: View {
                         }
                         .padding(.top, compact ? 8 : 12)
 
-                        VStack(spacing: 8) {
-                            ZStack {
-                                Circle()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [EcoTheme.primary.opacity(0.25), EcoTheme.sky.opacity(0.2)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(width: compact ? 78 : 88, height: compact ? 78 : 88)
-                                Image(systemName: "leaf.fill")
-                                    .font(.system(size: compact ? 34 : 38, weight: .black))
-                                    .foregroundStyle(EcoTheme.primary)
-                            }
-                            Text("EcoIz")
-                                .font(EcoTypography.largeTitle)
-                                .foregroundStyle(EcoTheme.ink)
+                        VStack(spacing: 10) {
+                            Image("AuthGlobe")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: compact ? 112 : 132, height: compact ? 112 : 132)
+                                .shadow(color: Color.black.opacity(0.1), radius: 12, y: 5)
+
+                            Image("AuthWordmark")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: compact ? 170 : 194)
                         }
                         .padding(.top, compact ? 4 : 8)
 
@@ -1195,12 +1188,18 @@ struct AddActivityView: View {
                                                     .font(EcoTypography.title2)
                                                     .foregroundStyle(.white)
                                                 Circle()
-                                                    .fill(Color(hex: 0xD7F4BD))
-                                                    .frame(width: 82, height: 82)
+                                                    .fill(Color.white.opacity(0.22))
+                                                    .frame(width: 92, height: 92)
                                                     .overlay(
-                                                        Image(systemName: "leaf.fill")
-                                                            .font(.system(size: 36, weight: .bold))
-                                                            .foregroundStyle(Color(hex: 0x69A83F))
+                                                        Circle()
+                                                            .stroke(Color.white.opacity(0.26), lineWidth: 1)
+                                                    )
+                                                    .overlay(
+                                                        Image("AuthGlobe")
+                                                            .resizable()
+                                                            .scaledToFill()
+                                                            .frame(width: 84, height: 84)
+                                                            .clipShape(Circle())
                                                     )
                                                 Text("\(pendingSubmission.isEstimated ? "≈" : "")\(String(format: "%.1f", pendingSubmission.co2)) кг")
                                                     .font(EcoTypography.title2)

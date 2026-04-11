@@ -13,6 +13,11 @@ def _streak_from_dates(activity_dates: list[date]) -> tuple[int, date | None]:
     unique_dates = sorted(set(activity_dates), reverse=True)
     streak = 1
     latest = unique_dates[0]
+    today = datetime.now(timezone.utc).date()
+
+    # Reset the streak if the user missed more than one day.
+    if (today - latest).days > 1:
+        return 0, latest
 
     for previous, current in zip(unique_dates, unique_dates[1:]):
         if previous.toordinal() - current.toordinal() == 1:

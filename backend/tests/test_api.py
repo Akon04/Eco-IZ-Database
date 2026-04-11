@@ -1,18 +1,22 @@
 import unittest
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import selectinload, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_current_user
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.models.challenge import UserChallenge
 from app.models.user import SessionToken, User
 from app.services.auth import hash_password
 from app.services.seed import ensure_seed_data
+from app.services.user_progress import recalculate_user_progress
 
 
 class BackendAPITests(unittest.TestCase):
@@ -480,6 +484,37 @@ class BackendAPITests(unittest.TestCase):
             item for item in second_plastic.json()["challenges"] if item["title"] == "3 дня без пластика"
         )
         self.assertEqual(after_plastic["currentCount"], before_plastic["currentCount"] + 1)
+
+    def test_bootstrap_resets_streak_after_missing_more_than_a_day(self) -> None:
+        login = self.client.post(
+            "/auth/login",
+            json={"email": "user@ecoiz.app", "password": "password123"},
+        )
+        self.assertEqual(login.status_code, 200)
+        token = login.json()["token"]
+
+        with self.SessionLocal() as db:
+            user = db.scalar(
+                select(User)
+                .options(
+                    selectinload(User.activities),
+                    selectinload(User.posts),
+                    selectinload(User.user_challenges).selectinload(UserChallenge.challenge),
+                )
+                .where(User.email == "user@ecoiz.app")
+            )
+            stale_time = datetime.now(timezone.utc) - timedelta(days=3)
+            for activity in user.activities:
+                activity.created_at = stale_time
+            recalculate_user_progress(user)
+            db.commit()
+
+        bootstrap = self.client.get(
+            "/bootstrap",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(bootstrap.status_code, 200)
+        self.assertEqual(bootstrap.json()["user"]["streakDays"], 0)
 
     def test_custom_activity_uses_server_side_estimation(self) -> None:
         login = self.client.post(

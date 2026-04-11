@@ -340,6 +340,9 @@ def admin_me(current_admin: User = Depends(get_current_admin)) -> AdminIdentityR
 @router.get("/bootstrap", response_model=BootstrapResponse)
 def bootstrap(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> BootstrapResponse:
     user = fetch_user_with_relations(db, current_user.id)
+    recalculate_user_progress(user)
+    db.commit()
+    user = fetch_user_with_relations(db, current_user.id)
     return build_bootstrap(user, db)
 
 
