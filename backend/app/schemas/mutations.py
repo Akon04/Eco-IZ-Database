@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from app.schemas.bootstrap import ActivityResponse, ChallengeResponse, ChatMessageResponse, PostMediaResponse, PostResponse, UserProfileResponse
@@ -17,6 +19,23 @@ class ActivityMutationResponse(BaseModel):
     activity: ActivityResponse
     user: UserProfileResponse
     challenges: list[ChallengeResponse]
+
+
+class EcoEventResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    location: str
+    startsAt: datetime
+    rewardPoints: int
+    badge: str
+    partnerName: str | None = None
+    registrationUrl: str | None = None
+    imageTintHex: int
+
+
+class EcoEventsEnvelope(BaseModel):
+    events: list[EcoEventResponse]
 
 
 class PostCreateRequest(BaseModel):

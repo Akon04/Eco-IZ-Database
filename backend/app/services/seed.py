@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.admin import EcoCategory, Habit
 from app.models.challenge import Challenge, UserChallenge
 from app.models.chat import ChatMessage
+from app.models.event import EcoEvent
 from app.models.post import Post
 from app.models.user import Activity, User
 from app.services.auth import hash_password
@@ -64,6 +65,61 @@ FIXED_HABIT_SPECS = [
     ("Отключил приборы из сети", "Отключить приборы из сети", 15, 0.0, 0.0, 3.0, "Энергия"),
     ("Использую LED-лампы", "Поставить LED-лампы", 20, 0.0, 0.0, 5.0, "Энергия"),
     ("Использую дневной свет", "Чаще использовать дневной свет", 15, 0.0, 0.0, 3.0, "Энергия"),
+]
+
+ECO_EVENT_SPECS = [
+    (
+        "Посадка деревьев в парке",
+        "Встречаемся, чтобы посадить молодые деревья и сделать район зеленее.",
+        "Алматы · Ботанический сад",
+        4,
+        11,
+        80,
+        "Бесплатно",
+        "Green Almaty",
+        None,
+        0x7ED957,
+        1,
+    ),
+    (
+        "BI Благотворительный марафон",
+        "17 мая улицы Астаны наполнятся энергией тысяч сердец. Все регистрационные взносы идут в благотворительный фонд BI-Жұлдызай на помощь детям.",
+        "Астана · Триатлон парк",
+        24,
+        9,
+        120,
+        "Регистрация",
+        "BI Group",
+        "https://marathon.bi.group/ru?utm_content=252_marathon&utm_source=facebook&utm_medium=cpl&utm_campaign=252_marathon_facebook_traffic_interest_webpromo&utm_term=%D0%9E%D1%81%D0%BE%D0%B7%D0%BD%D0%B0%D0%BD%D0%BD%D1%8B%D0%B5+%D0%B1%D0%BB%D0%B0%D0%B3%D0%BE%D1%82%D0%B2%D0%BE%D1%80%D0%B8&utm_channel=digital&project=252_marathon&region=astana&department=CC&priority=25&block=252_marathon&form_start_date=13_04_25&form_end_date=16_05_26&utm_id=120243354329490171&utm_content=120243837348950171&fbclid=PAdGRleARWJQxleHRuA2FlbQEwAGFkaWQBqzEiNLcxa3NydGMGYXBwX2lkDzEyNDAyNDU3NDI4NzQxNAABpxG29cKjpODAY90ELiMI3TeOOPki5tn0KwPliwqU3DFkkMSVeysHD2BM50lP_aem_Aq0kzzpJ5zrDvslMoeuEzg",
+        0x2DA9F5,
+        2,
+    ),
+    (
+        "Велодень без авто",
+        "Короткий городской велозаезд для тех, кто хочет попробовать день без машины.",
+        "Площадь Астана",
+        10,
+        10,
+        60,
+        "+60 очков",
+        "Urban Bike Club",
+        None,
+        0xFF9D1F,
+        3,
+    ),
+    (
+        "Эко-лекция для студентов",
+        "Лёгкая встреча про привычки, сортировку и то, как начать без перегруза.",
+        "Университетский кампус",
+        14,
+        13,
+        40,
+        "Для студентов",
+        "EcoIz Education",
+        None,
+        0x9B7BFF,
+        4,
+    ),
 ]
 
 
@@ -281,6 +337,28 @@ def ensure_seed_data(db: Session) -> None:
         habit.water_value = water_value
         habit.energy_value = energy_value
         habit.category_id = category_by_name[category_name].id
+
+    allowed_event_titles = {title for title, *_ in ECO_EVENT_SPECS}
+    for stale_event in db.scalars(select(EcoEvent)).all():
+        if stale_event.title not in allowed_event_titles:
+            stale_event.is_active = False
+
+    for title, description, location, days_from_now, hour, reward_points, badge, partner_name, registration_url, image_tint_hex, display_order in ECO_EVENT_SPECS:
+        starts_at = (now + timedelta(days=days_from_now)).replace(hour=hour, minute=0, second=0, microsecond=0)
+        event = db.scalar(select(EcoEvent).where(EcoEvent.title == title))
+        if not event:
+            event = EcoEvent(title=title, description=description, location=location, starts_at=starts_at)
+            db.add(event)
+        event.description = description
+        event.location = location
+        event.starts_at = starts_at
+        event.reward_points = reward_points
+        event.badge = badge
+        event.partner_name = partner_name
+        event.registration_url = registration_url
+        event.image_tint_hex = image_tint_hex
+        event.display_order = display_order
+        event.is_active = True
 
     for challenge_user in db.scalars(select(User).where(User.role == "USER")).all():
         assign_challenges_for_user(db, challenge_user, challenges)

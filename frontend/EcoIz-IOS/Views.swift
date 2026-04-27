@@ -136,25 +136,19 @@ struct AuthView: View {
                         case .welcome:
                             VStack(spacing: 14) {
                                 VStack(spacing: 10) {
-                                    Text("Маленькие шаги каждый день.\nБольшие изменения для планеты.")
+                                    Text("Маленькие шаги каждый день")
                                         .font(EcoTypography.title2)
                                         .foregroundStyle(EcoTheme.ink)
                                         .multilineTextAlignment(.center)
                                         .lineSpacing(2)
+
+                                    Text("Добавляй эко-активности, собирай серию и расти в уровне.")
+                                        .font(EcoTypography.footnote)
+                                        .foregroundStyle(EcoTheme.secondaryText.opacity(0.9))
+                                        .multilineTextAlignment(.center)
+                                        .lineSpacing(2)
                                 }
                                 .padding(.vertical, 12)
-
-                                VStack(spacing: 10) {
-                                    AuthBenefitRow(icon: "flame.fill", text: "Собирай серию и повышай эко-уровень")
-                                    AuthBenefitRow(icon: "bolt.fill", text: "Добавляй активности и копи очки")
-                                    AuthBenefitRow(icon: "sparkles", text: "Получай советы от ИИ по экопривычкам")
-                                }
-                                .padding(14)
-                                .background(EcoTheme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .stroke(EcoTheme.softStroke, lineWidth: 1)
-                                )
 
                                 VStack(spacing: 10) {
                                     Button("Войти") {
@@ -1785,6 +1779,8 @@ struct NewsView: View {
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var selectedMedia: [PostMediaAttachment] = []
     @State private var autoRefreshTask: Task<Void, Never>?
+    @State private var selectedEvent: EcoEvent?
+    @State private var joinedEventIDs: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -1826,6 +1822,18 @@ struct NewsView: View {
 
                     ScrollView {
                         LazyVStack(spacing: 0) {
+                            if appState.events.isEmpty {
+                                EcoEventsPlaceholder(isLoading: appState.isRefreshingEvents)
+                                    .padding(.bottom, 14)
+                            } else {
+                                EcoEventsCarousel(
+                                    events: appState.events,
+                                    joinedEventIDs: joinedEventIDs,
+                                    onSelect: { selectedEvent = $0 }
+                                )
+                                .padding(.bottom, 14)
+                            }
+
                             ForEach(appState.posts) { post in
                                 ThreadPostCell(post: post)
                             }
@@ -1841,6 +1849,7 @@ struct NewsView: View {
             .navigationBarHidden(true)
             .task {
                 await appState.refreshPostsIfAuthenticated()
+                await appState.refreshEventsIfAuthenticated()
                 startAutoRefresh()
             }
             .onDisappear {
@@ -1850,6 +1859,11 @@ struct NewsView: View {
         .onChange(of: pickerItems) { _, newItems in
             Task {
                 await loadMedia(from: newItems)
+            }
+        }
+        .sheet(item: $selectedEvent) { event in
+            EcoEventFullDetailSheet(event: event, isJoined: joinedEventIDs.contains(event.id)) {
+                joinedEventIDs.insert(event.id)
             }
         }
     }
@@ -1889,6 +1903,520 @@ struct NewsView: View {
     private func stopAutoRefresh() {
         autoRefreshTask?.cancel()
         autoRefreshTask = nil
+    }
+}
+
+private struct EcoEventsPlaceholder: View {
+    let isLoading: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ближайшие эко-ивенты")
+                        .font(EcoTypography.headline)
+                        .foregroundStyle(EcoTheme.ink)
+                    Text(isLoading ? "Загружаем события рядом с тобой" : "Скоро здесь появятся новые события")
+                        .font(EcoTypography.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("Все")
+                    .font(EcoTypography.caption.weight(.semibold))
+                    .foregroundStyle(EcoTheme.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(EcoTheme.primary.opacity(0.1), in: Capsule())
+            }
+            .padding(.horizontal)
+
+            HStack(spacing: 12) {
+                ForEach(0..<2, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(EcoTheme.elevatedCard)
+                        .frame(width: 246, height: 156)
+                        .overlay(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            (index == 0 ? EcoTheme.primary : EcoTheme.sky).opacity(0.18),
+                                            (index == 0 ? EcoTheme.primary : EcoTheme.sky).opacity(0.08),
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(height: 92)
+                                .padding(12)
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                                .stroke(EcoTheme.surfaceStroke, lineWidth: 1)
+                        )
+                        .redacted(reason: isLoading ? .placeholder : [])
+                }
+            }
+            .padding(.horizontal)
+        }
+        .padding(.top, 4)
+    }
+}
+
+private struct EcoEventsCarousel: View {
+    let events: [EcoEvent]
+    let joinedEventIDs: Set<String>
+    let onSelect: (EcoEvent) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Ближайшие эко-ивенты")
+                        .font(EcoTypography.headline)
+                        .foregroundStyle(EcoTheme.ink)
+                    Text("Участвуй, получай очки и делай вклад офлайн")
+                        .font(EcoTypography.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("Все")
+                    .font(EcoTypography.caption.weight(.semibold))
+                    .foregroundStyle(EcoTheme.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(EcoTheme.primary.opacity(0.1), in: Capsule())
+            }
+            .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(events) { event in
+                        EcoEventCard(event: event, isJoined: joinedEventIDs.contains(event.id))
+                            .onTapGesture {
+                                onSelect(event)
+                            }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+        .padding(.top, 4)
+    }
+}
+
+private struct EcoEventCard: View {
+    let event: EcoEvent
+    let isJoined: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ZStack(alignment: .topLeading) {
+                if let coverAssetName = ecoEventCoverAssetName(event) {
+                    Image(coverAssetName)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(height: 118)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                        .overlay {
+                            LinearGradient(
+                                colors: [
+                                    .black.opacity(0.04),
+                                    .black.opacity(0.12),
+                                    .black.opacity(0.42),
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                } else {
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(hex: UInt32(event.imageTintHex)).opacity(0.95),
+                                    Color(hex: UInt32(event.imageTintHex)).opacity(0.58),
+                                    EcoTheme.ink.opacity(0.12),
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(height: 118)
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: ecoEventIcon(event))
+                                .font(.system(size: 54, weight: .black))
+                                .foregroundStyle(.white.opacity(0.28))
+                                .padding(14)
+                        }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        EventBadge(text: isJoined ? "Участвую" : event.badge, tint: isJoined ? EcoTheme.primary : .white)
+                        if event.rewardPoints > 0 {
+                            EventBadge(text: "+\(event.rewardPoints) очков", tint: Color(hex: 0xF7C300))
+                        }
+                    }
+                    Spacer()
+                    Text(event.partnerName ?? "EcoIz Events")
+                        .font(EcoTypography.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+                .padding(12)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(event.title)
+                    .font(EcoTypography.headline)
+                    .foregroundStyle(EcoTheme.ink)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(eventTime)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+                Text(event.location)
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: 246, alignment: .leading)
+        .padding(12)
+        .background(EcoTheme.elevatedCard, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(EcoTheme.surfaceStroke, lineWidth: 1)
+        )
+        .shadow(color: EcoTheme.shadow.opacity(0.4), radius: 10, y: 5)
+    }
+
+    private var eventTime: String {
+        event.startsAt.formatted(.dateTime.day().month(.wide).hour().minute())
+    }
+}
+
+private struct EventBadge: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(EcoTypography.caption.weight(.bold))
+            .foregroundStyle(EcoTheme.ink)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.86), in: Capsule())
+    }
+}
+
+private func ecoEventIsTreePlanting(_ event: EcoEvent) -> Bool {
+    let text = "\(event.title) \(event.description)".lowercased()
+    return text.contains("дерев") || text.contains("посад")
+}
+
+private func ecoEventIsMarathon(_ event: EcoEvent) -> Bool {
+    let text = "\(event.title) \(event.description) \(event.partnerName ?? "")".lowercased()
+    return text.contains("марафон") || text.contains("bi group")
+}
+
+private func ecoEventCoverAssetName(_ event: EcoEvent) -> String? {
+    if ecoEventIsTreePlanting(event) {
+        return "EventTreePlantingCover"
+    }
+    if ecoEventIsMarathon(event) {
+        return "EventMarathonCover"
+    }
+    return nil
+}
+
+private func ecoEventIcon(_ event: EcoEvent) -> String {
+    let text = "\(event.title) \(event.description)".lowercased()
+    if ecoEventIsTreePlanting(event) || text.contains("сад") {
+        return "tree.fill"
+    }
+    if ecoEventIsMarathon(event) || text.contains("бег") {
+        return "figure.run"
+    }
+    if text.contains("пласт") || text.contains("сбор") || text.contains("переработ") {
+        return "arrow.3.trianglepath"
+    }
+    if text.contains("вело") || text.contains("авто") {
+        return "bicycle"
+    }
+    if text.contains("лекц") || text.contains("студ") {
+        return "graduationcap.fill"
+    }
+    return "sparkles"
+}
+
+private struct EcoEventFullDetailSheet: View {
+    let event: EcoEvent
+    let isJoined: Bool
+    let onJoin: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @State private var didJoin = false
+
+    private var joined: Bool { isJoined || didJoin }
+    private var registrationURL: URL? {
+        guard let registrationUrl = event.registrationUrl else { return nil }
+        return URL(string: registrationUrl)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    EcoEventHeroCover(event: event, joined: joined)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        EventInfoRow(icon: "calendar", title: "Дата и время", value: event.startsAt.formatted(.dateTime.day().month(.wide).hour().minute()))
+                        EventInfoRow(icon: "mappin.and.ellipse", title: "Место", value: event.location)
+                        if let partner = event.partnerName {
+                            EventInfoRow(icon: "person.2.fill", title: "Организатор", value: partner)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(EcoTheme.elevatedCard, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(EcoTheme.surfaceStroke, lineWidth: 1)
+                    )
+
+                    EventRewardCard(points: event.rewardPoints)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Что будет")
+                            .font(EcoTypography.headline)
+                            .foregroundStyle(EcoTheme.ink)
+
+                        Text(event.description)
+                            .font(EcoTypography.body)
+                            .foregroundStyle(EcoTheme.ink.opacity(0.86))
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .background(EcoTheme.elevatedCard, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(EcoTheme.surfaceStroke, lineWidth: 1)
+                    )
+
+                }
+                .padding(20)
+                .padding(.bottom, 86)
+            }
+            .background {
+                EcoBackground()
+                    .ignoresSafeArea()
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 0) {
+                    Button(primaryButtonTitle) {
+                        handlePrimaryAction()
+                    }
+                    .buttonStyle(DuoPrimaryButtonStyle())
+                    .disabled(joined && registrationURL == nil)
+                    .opacity(joined && registrationURL == nil ? 0.7 : 1)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
+                }
+                .background(.ultraThinMaterial)
+            }
+            .navigationTitle("Эко-ивент")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Закрыть") {
+                        dismiss()
+                    }
+                    .font(EcoTypography.subheadline.weight(.semibold))
+                    .foregroundStyle(EcoTheme.primary)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var primaryButtonTitle: String {
+        if registrationURL != nil {
+            return joined ? "Открыть регистрацию" : "Зарегистрироваться"
+        }
+        return joined ? "Вы участвуете" : "Участвовать"
+    }
+
+    private func handlePrimaryAction() {
+        if let registrationURL {
+            if !joined {
+                joinEvent()
+            }
+            openURL(registrationURL)
+            return
+        }
+        joinEvent()
+    }
+
+    private func joinEvent() {
+        guard !joined else { return }
+        didJoin = true
+        onJoin()
+        EcoFeedback.playActivitySaved()
+    }
+
+}
+
+private struct EcoEventHeroCover: View {
+    let event: EcoEvent
+    let joined: Bool
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            if let coverAssetName = ecoEventCoverAssetName(event) {
+                Image(coverAssetName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 222)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
+                    .overlay {
+                        LinearGradient(
+                            colors: [
+                                .black.opacity(0.02),
+                                .black.opacity(0.18),
+                                .black.opacity(0.56),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    }
+            } else {
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(hex: UInt32(event.imageTintHex)).opacity(0.95),
+                                Color(hex: UInt32(event.imageTintHex)).opacity(0.54),
+                                EcoTheme.primary.opacity(0.16),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(height: 222)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: ecoEventIcon(event))
+                            .font(.system(size: 108, weight: .black))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .padding(24)
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    EventBadge(text: joined ? "Участвую" : event.badge, tint: EcoTheme.primary)
+                    if event.rewardPoints > 0 {
+                        EventBadge(text: "+\(event.rewardPoints) очков", tint: Color(hex: 0xF7C300))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(event.title)
+                        .font(EcoTypography.title2)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(ecoEventHeroSubtitle(event))
+                        .font(EcoTypography.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.88))
+                        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+                }
+            }
+            .padding(18)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .stroke(.white.opacity(0.5), lineWidth: 1)
+        )
+        .shadow(color: EcoTheme.shadow.opacity(0.45), radius: 18, y: 10)
+    }
+}
+
+private func ecoEventHeroSubtitle(_ event: EcoEvent) -> String {
+    if ecoEventIsMarathon(event) {
+        return "Бег, энергия и помощь детям"
+    }
+    return "Делаем город зеленее вместе с EcoIz"
+}
+
+private struct EventRewardCard: View {
+    let points: Int
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: "doc.badge.seal.fill")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(EcoTheme.primary)
+                .frame(width: 48, height: 48)
+                .background(EcoTheme.primary.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Бонус участникам")
+                    .font(EcoTypography.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("Благодарственное письмо")
+                    .font(EcoTypography.headline)
+                    .foregroundStyle(EcoTheme.ink)
+                Text(points > 0 ? "После участия ты получишь письмо и +\(points) эко-очков." : "После участия ты получишь письмо от организаторов.")
+                    .font(EcoTypography.caption)
+                    .foregroundStyle(EcoTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(EcoTheme.elevatedCard, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(EcoTheme.surfaceStroke, lineWidth: 1)
+        )
+    }
+}
+
+private struct EventInfoRow: View {
+    let icon: String
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(EcoTheme.primary)
+                .frame(width: 22, height: 22)
+                .background(EcoTheme.primary.opacity(0.12), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(EcoTypography.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(EcoTypography.subheadline.weight(.semibold))
+                    .foregroundStyle(EcoTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

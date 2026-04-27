@@ -13,9 +13,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     openrouter_api_key: str | None = None
     openrouter_model: str = "openrouter/free"
-    ai_timeout_seconds: float = 12.0
+    ai_timeout_seconds: float = 20.0
     ai_temperature: float = 0.6
-    ai_max_tokens: int = 220
+    ai_max_tokens: int = 420
     ai_history_limit: int = 12
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

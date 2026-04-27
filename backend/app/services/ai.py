@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+import json
 import re
 
 import httpx
@@ -58,6 +59,25 @@ DEFAULT_SYSTEM_PROMPT = """
 """.strip()
 
 
+CUSTOM_ACTIVITY_CLASSIFIER_PROMPT = """
+Ты оцениваешь только пользовательскую "свою активность" в eco-приложении.
+
+Нужно понять, насколько действие экологически полезно в реальной жизни, но без завышения.
+Отвечай только JSON-объектом без markdown и без пояснений.
+
+Разрешённые значения:
+- category: "Транспорт", "Вода", "Энергия", "Пластик", "Отходы", "Озеленение", "Другое"
+- impactLevel: "low", "medium", "high"
+
+Смысл уровней:
+- low: маленькое, локальное, полезное действие
+- medium: заметное полезное действие с понятным eco-эффектом
+- high: сильный вклад, требующий больше усилий или дающий более весомый eco-эффект
+
+Не завышай оценку. Если сомневаешься, выбирай более осторожный вариант.
+""".strip()
+
+
 def _fallback_response(text: str) -> str:
     lowercase = text.lower()
     if _is_greeting_or_smalltalk(text):
@@ -82,6 +102,43 @@ def _fallback_response(text: str) -> str:
     if any(word in lowercase for word in ("как", "почему", "зачем", "что")):
         return "Могу ответить нормально и по-человечески. Если хочешь, подстрою совет или идею под твою ситуацию и заодно добавлю лёгкий eco-friendly угол без перегруза."
     return "Могу ответить по-человечески и без шаблонов. Если захочешь, ещё и подстрою ответ под твой день, настроение или одну маленькую eco-активность."
+
+
+def _rule_based_custom_activity_assessment(title: str, note: str) -> tuple[float, int]:
+    combined = f"{title} {note}".lower()
+    trimmed_note = note.strip()
+    points = 4
+    co2_saved = 0.12
+
+    if any(keyword in combined for keyword in ("велосип", "пеш", "метро", "автобус", "поезд", "самокат")):
+        points += 4
+        co2_saved += 0.42
+    if any(keyword in combined for keyword in ("сортир", "переработ", "вторсыр", "мусор", "компост")):
+        points += 3
+        co2_saved += 0.28
+    if any(keyword in combined for keyword in ("бутыл", "сумк", "упаков", "пластик", "многораз")):
+        points += 2
+        co2_saved += 0.16
+    if any(keyword in combined for keyword in ("душ", "кран", "вода", "утеч")):
+        points += 2
+        co2_saved += 0.14
+    if any(keyword in combined for keyword in ("свет", "ламп", "электр", "заряд", "энерг")):
+        points += 2
+        co2_saved += 0.16
+    if any(keyword in combined for keyword in ("сад", "дерев", "сажен", "озелен", "цвет", "огород", "растен", "зелень", "куст")):
+        points += 3
+        co2_saved += 0.24
+    if any(keyword in combined for keyword in ("вместо", "отказ", "замен", "сэконом")):
+        points += 2
+        co2_saved += 0.10
+    if len(trimmed_note) > 90:
+        points += 1
+        co2_saved += 0.06
+    if len(trimmed_note) < 28:
+        points = min(points, 6)
+        co2_saved = min(co2_saved, 0.22)
+
+    return round(min(co2_saved, 1.1), 2), min(points, 14)
 
 
 def _contains_any(text: str, *phrases: str) -> bool:
@@ -133,6 +190,11 @@ def _is_affirmation(text: str) -> bool:
         "наверное да",
     )
     return normalized in affirmations
+
+
+def _is_thanks(text: str) -> bool:
+    normalized = " ".join(_normalized_user_text(text).split())
+    return any(token in normalized for token in ("спасибо", "спасиб", "благодарю", "благодарочка", "мерси"))
 
 
 def _home_actions_for_category(category: str) -> list[str]:
@@ -478,6 +540,8 @@ def _infer_user_intent(text: str) -> str:
     lowercase = text.lower()
     if _is_activity_sharing_message(lowercase):
         return "praise"
+    if _is_thanks(text):
+        return "thanks"
     if _is_affirmation(text):
         return "affirmation"
     if _is_smalltalk_request(text):
@@ -557,6 +621,12 @@ def _personalized_fallback_response(text: str, user: User) -> str:
         return (
             f"{_pick_variant(seed, ['Супер, тогда это уже хороший шаг.', 'Отлично, этого уже достаточно на сегодня.', 'Класс, значит серия держится.'])} "
             f"{_pick_variant(seed, ['Если захочешь, потом подкину ещё один такой же лёгкий вариант.', 'Не перегружай себя: одного такого действия уже хватает.', 'Маленький шаг тоже работает, так что ты уже в деле 🌱'])}"
+        )
+
+    if intent == "thanks":
+        return (
+            f"{_pick_variant(seed, ['Пожалуйста 🌿', 'Всегда пожалуйста 🌱', 'Рада помочь 🌍'])} "
+            f"{_pick_variant(seed, ['Если захочешь, могу предложить ещё один простой eco-шаг на сегодня.', 'Если будет настроение, подкину ещё одну лёгкую идею без перегруза.', 'Если нужно, могу сразу придумать ещё один маленький шаг на сегодня.'])}"
         )
 
     if intent == "praise":
@@ -655,6 +725,8 @@ def _is_low_quality_model_response(user_text: str, response_text: str) -> bool:
         "pendingchallengeclaims",
         "recentcategorycoverage",
         "основной состав атмосферы",
+        "вместо еды",
+        "рад что тебе помогло",
     ]
     if any(marker in normalized_response for marker in awkward_markers):
         return True
@@ -796,6 +868,39 @@ def _openai_response(messages: list[dict[str, str]]) -> str | None:
     return content or None
 
 
+def assess_custom_activity_impact(title: str, note: str) -> tuple[float, int]:
+    settings = get_settings()
+    fallback = _rule_based_custom_activity_assessment(title, note)
+
+    provider = settings.ai_provider
+    if provider == "openrouter" and not settings.openrouter_api_key:
+        provider = "openai" if settings.openai_api_key else "fallback"
+    if provider == "openai" and not settings.openai_api_key:
+        provider = "openrouter" if settings.openrouter_api_key else "fallback"
+    if provider == "fallback":
+        return fallback
+
+    messages = [
+        {"role": "system", "content": CUSTOM_ACTIVITY_CLASSIFIER_PROMPT},
+        {"role": "user", "content": _custom_activity_prompt(title, note)},
+    ]
+
+    try:
+        raw = _openai_response(messages) if provider == "openai" else _openrouter_response(messages)
+        payload = _extract_json_object(raw or "")
+        if not payload:
+            return fallback
+
+        category = str(payload.get("category", "Другое")).strip()
+        impact_level = str(payload.get("impactLevel", "low")).strip().lower()
+        if impact_level not in {"low", "medium", "high"}:
+            return fallback
+
+        return _clamp_custom_activity_estimate(category, impact_level, title, note)
+    except Exception:
+        return fallback
+
+
 def _normalize_model_response(text: str) -> str:
     normalized = text.strip()
     prefixes = (
@@ -810,6 +915,69 @@ def _normalize_model_response(text: str) -> str:
             normalized = normalized[len(prefix):].strip()
             lower = normalized.lower()
     return normalized
+
+
+def _extract_json_object(text: str) -> dict[str, object] | None:
+    normalized = text.strip()
+    try:
+        payload = json.loads(normalized)
+        return payload if isinstance(payload, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{.*\}", normalized, re.DOTALL)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(0))
+        return payload if isinstance(payload, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _custom_activity_prompt(title: str, note: str) -> str:
+    return (
+        f"Название активности: {title.strip()}\n"
+        f"Описание: {note.strip() or 'нет описания'}\n\n"
+        "Верни JSON в формате:\n"
+        '{"category":"...","impactLevel":"low|medium|high"}'
+    )
+
+
+def _clamp_custom_activity_estimate(category: str, impact_level: str, title: str, note: str) -> tuple[float, int]:
+    normalized_category = category.strip().lower()
+    normalized_impact = impact_level.strip().lower()
+
+    base_points = {"low": 5, "medium": 9, "high": 13}.get(normalized_impact, 6)
+    base_co2 = {"low": 0.18, "medium": 0.38, "high": 0.72}.get(normalized_impact, 0.22)
+
+    category_adjustments = {
+        "транспорт": (1, 0.18),
+        "вода": (0, 0.05),
+        "энергия": (0, 0.06),
+        "пластик": (0, 0.06),
+        "отходы": (1, 0.10),
+        "озеленение": (1, 0.12),
+        "другое": (0, 0.0),
+    }
+    points_bonus, co2_bonus = category_adjustments.get(normalized_category, (0, 0.0))
+    computed_points = base_points + points_bonus
+    computed_co2 = base_co2 + co2_bonus
+
+    trimmed_note = note.strip()
+    if len(trimmed_note) > 90:
+        computed_points += 1
+        computed_co2 += 0.04
+    if len(trimmed_note) < 28:
+        computed_points = min(computed_points, 7)
+        computed_co2 = min(computed_co2, 0.28)
+
+    combined = f"{title} {note}".lower()
+    if any(keyword in combined for keyword in ("посад", "выраст", "сажен", "озелен", "дерев", "сад", "огород")):
+        computed_points = max(computed_points, 8)
+        computed_co2 = max(computed_co2, 0.32)
+
+    return round(min(max(computed_co2, 0.1), 1.2), 2), min(max(computed_points, 4), 14)
 
 
 def ai_response(text: str, *, user: User | None = None) -> str:

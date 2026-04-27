@@ -12,6 +12,7 @@ final class AppState: ObservableObject {
     @Published var isClaimingChallenge = false
     @Published var isRefreshingPosts = false
     @Published var isRefreshingChallenges = false
+    @Published var isRefreshingEvents = false
     @Published var alertTitle = "Ошибка"
     @Published var alertMessage: String?
     @Published var levelUpLevel: EcoLevel?
@@ -26,6 +27,7 @@ final class AppState: ObservableObject {
     @Published var activities: [EcoActivity] = []
     @Published var challenges: [Challenge] = []
     @Published var posts: [EcoPost] = []
+    @Published var events: [EcoEvent] = []
     @Published var chatMessages: [ChatMessage] = []
     @Published var communityImpact = CommunityImpact(
         totalUsers: 0,
@@ -162,6 +164,21 @@ final class AppState: ObservableObject {
             posts = try await apiClient.fetchPosts()
         } catch {
             guard !shouldIgnore(error) else { return }
+            present(error)
+        }
+    }
+
+    func refreshEventsIfAuthenticated(silently: Bool = true) async {
+        guard isAuthenticated || apiClient.hasStoredToken else { return }
+        guard !isRefreshingEvents else { return }
+
+        isRefreshingEvents = true
+        defer { isRefreshingEvents = false }
+        do {
+            events = try await apiClient.fetchEvents()
+        } catch {
+            guard !shouldIgnore(error) else { return }
+            guard !silently else { return }
             present(error)
         }
     }
@@ -324,6 +341,7 @@ final class AppState: ObservableObject {
         activities = bootstrap.activities
         challenges = sortChallenges(bootstrap.challenges)
         posts = bootstrap.posts
+        await refreshEventsIfAuthenticated()
         chatMessages = bootstrap.chatMessages
         communityImpact = bootstrap.communityImpact
         if chatMessages.isEmpty {
@@ -347,6 +365,7 @@ final class AppState: ObservableObject {
         activities = []
         challenges = []
         posts = []
+        events = []
         communityImpact = CommunityImpact(
             totalUsers: 0,
             activeUsers: 0,
@@ -363,6 +382,17 @@ final class AppState: ObservableObject {
 
     private func present(_ error: Error) {
         guard !shouldIgnore(error) else { return }
+
+        if let apiError = error as? APIError,
+           case .server(let message) = apiError,
+           message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "invalid email or password." {
+            showAlert(
+                title: "Неправильный пароль",
+                message: "Проверь пароль и попробуй снова."
+            )
+            return
+        }
+
         showAlert(
             title: "Ошибка",
             message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

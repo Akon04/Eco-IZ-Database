@@ -128,6 +128,10 @@ private struct PostsEnvelope: Decodable {
     }
 }
 
+private struct EventsEnvelope: Decodable {
+    let events: [EcoEvent]
+}
+
 private struct ChatEnvelope: Decodable {
     let messages: [ChatMessage]
 
@@ -190,16 +194,18 @@ final class APIClient {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let tokenKey = "ecoiz.backend.token"
-    private let baseURL: URL
+    private let baseURLOverrideKey = "ecoiz.backend.baseURLOverride"
+    private var baseURLs: [URL]
 
     init(session: URLSession = .shared) {
         self.session = session
         self.encoder = APIClient.makeEncoder()
         self.decoder = APIClient.makeDecoder()
-        guard let url = URL(string: Self.resolveBaseURL()) else {
+        let resolvedURLs = Self.resolveBaseURLs().compactMap(URL.init(string:))
+        guard !resolvedURLs.isEmpty else {
             fatalError("Invalid EcoIZ backend URL")
         }
-        self.baseURL = url
+        self.baseURLs = resolvedURLs
     }
 
     var hasStoredToken: Bool {
@@ -239,6 +245,11 @@ final class APIClient {
     func fetchPosts() async throws -> [EcoPost] {
         let response: PostsEnvelope = try await request(path: "/posts", method: "GET", requiresAuth: true)
         return response.posts
+    }
+
+    func fetchEvents() async throws -> [EcoEvent] {
+        let response: EventsEnvelope = try await request(path: "/events", method: "GET", requiresAuth: true)
+        return response.events
     }
 
     func addActivity(
@@ -325,6 +336,44 @@ final class APIClient {
         body: Body?,
         requiresAuth: Bool
     ) async throws -> Response {
+        var lastNetworkError: APIError?
+
+        for baseURL in candidateBaseURLs() {
+            do {
+                let response: Response = try await performRequest(
+                    baseURL: baseURL,
+                    path: path,
+                    method: method,
+                    body: body,
+                    requiresAuth: requiresAuth
+                )
+                persistWorkingBaseURL(baseURL)
+                return response
+            } catch let error as APIError {
+                switch error {
+                case .server(let message) where isConnectivityMessage(message):
+                    lastNetworkError = error
+                    continue
+                default:
+                    throw error
+                }
+            } catch {
+                throw error
+            }
+        }
+
+        throw lastNetworkError ?? APIError.server(
+            "Не удалось связаться с сервером. Проверь, что Mac и iPhone в одной сети Wi‑Fi."
+        )
+    }
+
+    private func performRequest<Response: Decodable, Body: Encodable>(
+        baseURL: URL,
+        path: String,
+        method: String,
+        body: Body?,
+        requiresAuth: Bool
+    ) async throws -> Response {
         let endpoint = baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         var request = URLRequest(url: endpoint)
         request.httpMethod = method
@@ -341,12 +390,31 @@ final class APIClient {
             request.httpBody = try encoder.encode(body)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let urlError as URLError {
+            throw mapNetworkError(urlError)
+        } catch {
+            throw APIError.server("Не удалось связаться с сервером. Проверь, что Mac и iPhone в одной сети Wi‑Fi.")
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse()
         }
 
         if httpResponse.statusCode == 401 {
+            if !requiresAuth {
+                if let errorResponse = try? decoder.decode(APIErrorResponse.self, from: data),
+                   let message = errorResponse.resolvedMessage {
+                    throw APIError.server(message)
+                }
+                if let rawBody = String(data: data, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !rawBody.isEmpty {
+                    throw APIError.server(rawBody)
+                }
+            }
             clearToken()
             throw APIError.unauthorized
         }
@@ -382,6 +450,20 @@ final class APIClient {
         }
     }
 
+    private func candidateBaseURLs() -> [URL] {
+        var ordered = baseURLs
+        if let storedOverride = UserDefaults.standard.string(forKey: baseURLOverrideKey),
+           let overrideURL = URL(string: storedOverride) {
+            ordered.removeAll { $0.absoluteString == overrideURL.absoluteString }
+            ordered.insert(overrideURL, at: 0)
+        }
+        return ordered
+    }
+
+    private func persistWorkingBaseURL(_ url: URL) {
+        UserDefaults.standard.set(url.absoluteString, forKey: baseURLOverrideKey)
+    }
+
     private var storedToken: String? {
         get { UserDefaults.standard.string(forKey: tokenKey) }
         set {
@@ -393,16 +475,20 @@ final class APIClient {
         }
     }
 
-    private static func resolveBaseURL() -> String {
+    private static func resolveBaseURLs() -> [String] {
+        var candidates: [String] = []
         if let override = validatedBaseURLOverride() {
-            return override
+            candidates.append(override)
         }
-
         #if targetEnvironment(simulator)
-        return "http://127.0.0.1:8000"
+        candidates.append("http://127.0.0.1:8000")
         #else
-        return "http://MacBook-Pro--Erke.local:8000"
+        candidates.append(contentsOf: [
+            "http://192.168.1.95:8000",
+            "http://MacBook-Pro--Erke.local:8000",
+        ])
         #endif
+        return Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
     }
 
     private static func validatedBaseURLOverride() -> String? {
@@ -493,6 +579,27 @@ final class APIClient {
     private func codingPathDescription(_ codingPath: [CodingKey]) -> String {
         let path = codingPath.map(\.stringValue).joined(separator: ".")
         return path.isEmpty ? "корневом объекте" : path
+    }
+
+    private func mapNetworkError(_ error: URLError) -> APIError {
+        switch error.code {
+        case .cannotFindHost, .dnsLookupFailed:
+            return .server("Телефон не нашёл адрес backend. Проверь, что iPhone и Mac в одной сети Wi‑Fi.")
+        case .cannotConnectToHost, .networkConnectionLost, .notConnectedToInternet:
+            return .server("Нет соединения с backend. Убедись, что сервер запущен на Mac и доступен по Wi‑Fi.")
+        case .timedOut:
+            return .server("Backend не ответил вовремя. Проверь, что сервер запущен и сеть стабильна.")
+        default:
+            return .server("Не удалось связаться с сервером. Проверь, что Mac и iPhone в одной сети Wi‑Fi.")
+        }
+    }
+
+    private func isConnectivityMessage(_ message: String) -> Bool {
+        let normalized = message.lowercased()
+        return normalized.contains("не удалось связаться")
+            || normalized.contains("не нашёл адрес")
+            || normalized.contains("нет соединения")
+            || normalized.contains("не ответил вовремя")
     }
 }
 

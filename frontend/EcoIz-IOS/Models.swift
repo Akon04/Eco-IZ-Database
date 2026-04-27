@@ -580,6 +580,64 @@ struct EcoPost: Identifiable, Decodable {
     }
 }
 
+struct EcoEvent: Identifiable, Decodable {
+    let id: String
+    let title: String
+    let description: String
+    let location: String
+    let startsAt: Date
+    let rewardPoints: Int
+    let badge: String
+    let partnerName: String?
+    let registrationUrl: String?
+    let imageTintHex: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case description
+        case location
+        case startsAt
+        case starts_at
+        case rewardPoints
+        case reward_points
+        case badge
+        case partnerName
+        case partner_name
+        case registrationUrl
+        case registration_url
+        case imageTintHex
+        case image_tint_hex
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? "Эко-ивент"
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? "Алматы"
+        startsAt =
+            try container.decodeIfPresent(Date.self, forKey: .startsAt)
+            ?? container.decodeIfPresent(Date.self, forKey: .starts_at)
+            ?? .now
+        rewardPoints =
+            try container.decodeIfPresent(Int.self, forKey: .rewardPoints)
+            ?? container.decodeIfPresent(Int.self, forKey: .reward_points)
+            ?? 0
+        badge = try container.decodeIfPresent(String.self, forKey: .badge) ?? "Бесплатно"
+        partnerName =
+            try container.decodeIfPresent(String.self, forKey: .partnerName)
+            ?? container.decodeIfPresent(String.self, forKey: .partner_name)
+        registrationUrl =
+            try container.decodeIfPresent(String.self, forKey: .registrationUrl)
+            ?? container.decodeIfPresent(String.self, forKey: .registration_url)
+        imageTintHex =
+            try container.decodeIfPresent(Int.self, forKey: .imageTintHex)
+            ?? container.decodeIfPresent(Int.self, forKey: .image_tint_hex)
+            ?? 0x7ED957
+    }
+}
+
 struct ChatMessage: Identifiable, Decodable {
     let id: String
     let isUser: Bool

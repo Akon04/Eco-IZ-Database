@@ -1,6 +1,6 @@
 import base64
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.models.admin import EcoCategory, Habit
 from app.models.challenge import Challenge, UserChallenge
 from app.models.chat import ChatMessage
+from app.models.event import EcoEvent
 from app.models.post import Post, PostMedia, PostReport
 from app.models.user import Activity, ActivityMedia, User
 from app.schemas.admin import (
@@ -57,11 +58,13 @@ from app.schemas.mutations import (
     ChatEnvelope,
     ChallengeClaimResponse,
     PostCreateRequest,
+    EcoEventResponse,
+    EcoEventsEnvelope,
     PostEnvelope,
     PostReportRequest,
     PostsEnvelope,
 )
-from app.services.ai import ai_response
+from app.services.ai import ai_response, assess_custom_activity_impact
 from app.services.auth import create_session_token, hash_password, needs_password_rehash, verify_password
 from app.services.bootstrap import (
     build_bootstrap,
@@ -104,40 +107,6 @@ def parse_uuid(value: str) -> uuid.UUID:
         return uuid.UUID(value)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found.") from exc
-
-
-def estimate_custom_activity_impact(title: str, note: str) -> tuple[float, int]:
-    combined = f"{title} {note}".lower()
-    trimmed_note = note.strip()
-    points = 4
-    co2_saved = 0.12
-
-    if any(keyword in combined for keyword in ("велосип", "пеш", "метро", "автобус", "поезд", "самокат")):
-        points += 4
-        co2_saved += 0.42
-    if any(keyword in combined for keyword in ("сортир", "переработ", "вторсыр", "мусор", "компост")):
-        points += 3
-        co2_saved += 0.28
-    if any(keyword in combined for keyword in ("бутыл", "сумк", "упаков", "пластик", "многораз")):
-        points += 2
-        co2_saved += 0.16
-    if any(keyword in combined for keyword in ("душ", "кран", "вода", "утеч")):
-        points += 2
-        co2_saved += 0.14
-    if any(keyword in combined for keyword in ("свет", "ламп", "электр", "заряд", "энерг")):
-        points += 2
-        co2_saved += 0.16
-    if any(keyword in combined for keyword in ("вместо", "отказ", "замен", "сэконом")):
-        points += 2
-        co2_saved += 0.1
-    if len(trimmed_note) > 90:
-        points += 1
-        co2_saved += 0.06
-    if len(trimmed_note) < 28:
-        points = min(points, 6)
-        co2_saved = min(co2_saved, 0.22)
-
-    return round(min(co2_saved, 1.1), 2), min(points, 14)
 
 
 def serialize_admin_identity(user: User) -> AdminIdentityResponse:
@@ -245,6 +214,21 @@ def serialize_achievement(challenge: Challenge) -> AchievementResponse:
         icon=challenge.badge_symbol,
         targetValue=challenge.target_count,
         rewardPoints=challenge.reward_points,
+    )
+
+
+def serialize_event(event: EcoEvent) -> EcoEventResponse:
+    return EcoEventResponse(
+        id=str(event.id),
+        title=event.title,
+        description=event.description,
+        location=event.location,
+        startsAt=event.starts_at,
+        rewardPoints=event.reward_points,
+        badge=event.badge,
+        partnerName=event.partner_name,
+        registrationUrl=event.registration_url,
+        imageTintHex=event.image_tint_hex,
     )
 
 
@@ -369,6 +353,18 @@ def posts(current_user: User = Depends(get_current_user), db: Session = Depends(
     return PostsEnvelope(posts=[serialize_post(item, viewer_id=user.id) for item in visible_posts_for_user(db, user)])
 
 
+@router.get("/events", response_model=EcoEventsEnvelope)
+def eco_events(_: User = Depends(get_current_user), db: Session = Depends(get_db)) -> EcoEventsEnvelope:
+    now = datetime.now(timezone.utc)
+    items = db.scalars(
+        select(EcoEvent)
+        .where(EcoEvent.is_active == True)  # noqa: E712
+        .where(EcoEvent.starts_at >= now - timedelta(days=1))
+        .order_by(EcoEvent.display_order.asc(), EcoEvent.starts_at.asc())
+    ).all()
+    return EcoEventsEnvelope(events=[serialize_event(item) for item in items])
+
+
 @router.get("/chat/messages", response_model=ChatEnvelope)
 def chat_messages(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> ChatEnvelope:
     user = fetch_user_with_relations(db, current_user.id)
@@ -395,7 +391,7 @@ def add_activity(
         )
 
     if payload.category == "Своя активность":
-        computed_co2_saved, computed_points = estimate_custom_activity_impact(title, note)
+        computed_co2_saved, computed_points = assess_custom_activity_impact(title, note)
     else:
         computed_points = max(0, min(payload.points, 60))
         computed_co2_saved = max(0.0, min(payload.co2Saved, 5.0))
